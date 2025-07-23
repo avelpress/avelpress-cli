@@ -1,0 +1,24 @@
+{
+    "name": "avelpress/avelpress-cli",
+    "description": "Cli for AvelPress",
+    "type": "library",
+    "license": "MIT",
+    "minimum-stability": "stable",
+    "autoload": {
+        "psr-4": {
+            "AvelPress\\Cli\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Marcos G.",
+            "email": "marcosgomesneto@gmail.com"
+        }
+    ],
+    "bin": [
+        "bin/avel"
+    ],
+    "require": {
+        "symfony/console": "^5.4"
+    }
+}
