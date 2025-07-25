@@ -69,6 +69,14 @@ class NamespaceHelper
     }
 
     /**
+     * Escape backslashes in namespace for configuration files (double backslash)
+     */
+    public static function escapeNamespace(string $namespace): string
+    {
+        return str_replace('\\', '\\\\', $namespace);
+    }
+
+    /**
      * Generate a full namespace for a specific class type
      */
     public static function getClassNamespace(string $baseNamespace, string $subNamespace = ''): string

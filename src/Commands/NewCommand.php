@@ -8,6 +8,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\Question;
 
 class NewCommand extends Command
 {
@@ -39,10 +40,38 @@ class NewCommand extends Command
             return Command::FAILURE;
         }
 
+        // Get additional information for plugin
+        $displayName = '';
+        $shortDescription = '';
+        
+        if ($type === 'plugin') {
+            $helper = $this->getHelper('question');
+            
+            // Ask for display name
+            $displayNameQuestion = new Question('<question>Enter the display name for the plugin (max 80 characters): </question>');
+            $displayNameQuestion->setValidator(function ($answer) {
+                if (empty($answer) || strlen($answer) > 80) {
+                    throw new \RuntimeException('Display name is required and must be 80 characters or less.');
+                }
+                return $answer;
+            });
+            $displayName = $helper->ask($input, $output, $displayNameQuestion);
+            
+            // Ask for short description
+            $shortDescQuestion = new Question('<question>Enter a short description for the plugin (max 150 characters): </question>');
+            $shortDescQuestion->setValidator(function ($answer) {
+                if (empty($answer) || strlen($answer) > 150) {
+                    throw new \RuntimeException('Short description is required and must be 150 characters or less.');
+                }
+                return $answer;
+            });
+            $shortDescription = $helper->ask($input, $output, $shortDescQuestion);
+        }
+
         $output->writeln("<info>Creating new Avelpress {$type}: {$fullName}</info>");
 
         try {
-            $this->createApplicationStructure($vendor, $packageName, $fullName, $type, $output);
+            $this->createApplicationStructure($vendor, $packageName, $fullName, $type, $displayName, $shortDescription, $output);
             $output->writeln("<info>Application '{$fullName}' created successfully!</info>");
 
             $output->writeln("<comment>To finish setup, run the following commands:</comment>");
@@ -56,7 +85,7 @@ class NewCommand extends Command
         }
     }
 
-    private function createApplicationStructure(string $vendor, string $packageName, string $fullName, string $type, OutputInterface $output): void
+    private function createApplicationStructure(string $vendor, string $packageName, string $fullName, string $type, string $displayName, string $shortDescription, OutputInterface $output): void
     {
         $basePath = getcwd() . '/' . $fullName;
 
@@ -67,7 +96,7 @@ class NewCommand extends Command
 
         $this->createDirectoryStructure($basePath, $output);
 
-        $this->createApplicationFiles($basePath, $vendor, $packageName, $fullName, $type, $output);
+        $this->createApplicationFiles($basePath, $vendor, $packageName, $fullName, $type, $displayName, $shortDescription, $output);
     }
 
     private function createDirectoryStructure(string $basePath, OutputInterface $output): void
@@ -100,13 +129,13 @@ class NewCommand extends Command
         }
     }
 
-    private function createApplicationFiles(string $basePath, string $vendor, string $packageName, string $fullName, string $type, OutputInterface $output): void
+    private function createApplicationFiles(string $basePath, string $vendor, string $packageName, string $fullName, string $type, string $displayName, string $shortDescription, OutputInterface $output): void
     {
         $packageNamespace = NamespaceHelper::getPackageNamespace($vendor, $packageName);
 
-        $this->createComposerJson($basePath, $vendor, $packageName, $fullName, $type, $packageNamespace, $output);
+        $this->createComposerJson($basePath, $vendor, $packageName, $fullName, $type, $packageNamespace, $shortDescription, $output);
 
-        $this->createMainFile($basePath, $vendor, $packageName, $fullName, $type, $packageNamespace, $output);
+        $this->createMainFile($basePath, $vendor, $packageName, $fullName, $type, $packageNamespace, $displayName, $output);
 
         $this->createProvidersFile($basePath, $packageNamespace, $output);
 
@@ -118,15 +147,19 @@ class NewCommand extends Command
 
         $this->createAvelPressConfigFile($basePath, $packageNamespace, $output);
 
+        if ($type === 'plugin') {
+            $this->createReadmeTxtFile($basePath, $vendor, $displayName, $shortDescription, $output);
+        }
+
         $this->createGitignoreFile($basePath, $output);
     }
 
 
-    private function createComposerJson(string $basePath, string $vendor, string $packageName, string $fullName, string $type, string $composerNamespace, OutputInterface $output): void
+    private function createComposerJson(string $basePath, string $vendor, string $packageName, string $fullName, string $type, string $composerNamespace, string $shortDescription, OutputInterface $output): void
     {
         $composer = [
             'name' => $vendor . '/' . strtolower($packageName),
-            'description' => "A new AvelPress {$type}: {$fullName}",
+            'description' => $shortDescription ?: "A new AvelPress {$type}: {$fullName}",
             'version' => '1.0.0',
             'type' => $type === 'plugin' ? 'wordpress-plugin' : 'wordpress-theme',
             'license' => 'GPL-2.0+',
@@ -157,7 +190,7 @@ class NewCommand extends Command
         $output->writeln("Created file: composer.json");
     }
 
-    private function createMainFile(string $basePath, string $vendor, string $packageName, string $fullName, string $type, string $packageNamespace, OutputInterface $output): void
+    private function createMainFile(string $basePath, string $vendor, string $packageName, string $fullName, string $type, string $packageNamespace, string $displayName, OutputInterface $output): void
     {
         $filename = $basePath . '/' . $fullName . '.php';
 
@@ -166,10 +199,10 @@ class NewCommand extends Command
 
         $content = "<?php\n";
         $content .= "/**\n";
-        $content .= " * @package {$packageNamespace}\n\n";
 
         if ($type === 'plugin') {
-            $content .= " * Plugin Name: {$vendorDisplay} {$packageDisplay}\n";
+            $pluginName = $displayName ?: "{$vendorDisplay} {$packageDisplay}";
+            $content .= " * Plugin Name: {$pluginName}\n";
             $content .= " * Description: A new AvelPress plugin.\n";
             $content .= " * Version: 1.0.0\n";
             $content .= " * Requires at least: 6.0\n";
@@ -288,7 +321,7 @@ class NewCommand extends Command
         $content .= "return [\n";
         $content .= "\t'build' => [\n";
         $content .= "\t\t'prefixer' => [\n";
-        $content .= "\t\t\t'namespace_prefix' => '{$packageNamespace}\\',\n";
+        $content .= "\t\t\t'namespace_prefix' => '" . NamespaceHelper::escapeNamespace($packageNamespace) . "\\\\',\n";
         $content .= "\t\t\t'packages' => [\n";
         $content .= "\t\t\t\t'avelpress/avelpress',\n";
         $content .= "\t\t\t]\n";
@@ -298,6 +331,29 @@ class NewCommand extends Command
 
         file_put_contents($filename, $content);
         $output->writeln("Created file: avelpress.config.php");
+    }
+
+    private function createReadmeTxtFile(string $basePath, string $vendor, string $displayName, string $shortDescription, OutputInterface $output): void
+    {
+        $filename = $basePath . '/readme.txt';
+
+        $vendorName = ucfirst($vendor);
+
+        $content = "=== {$displayName} ===\n";
+        $content .= "Contributors: {$vendorName}\n";
+        $content .= "Tags: wordpress, plugin, avelpress, composer, php\n";
+        $content .= "Requires at least: 6.0\n";
+        $content .= "Requires PHP: 7.4\n";
+        $content .= "Tested up to: 6.8\n";
+        $content .= "Stable tag: 1.0.0\n";
+        $content .= "License: GPLv2 or later\n";
+        $content .= "License URI: http://www.gnu.org/licenses/gpl-2.0.html\n";
+        $content .= "{$shortDescription}\n\n";
+        $content .= "== Description ==\n\n";
+        $content .= "{$shortDescription}\n";
+
+        file_put_contents($filename, $content);
+        $output->writeln("Created file: readme.txt");
     }
 
     private function createGitignoreFile(string $basePath, OutputInterface $output): void
