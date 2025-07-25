@@ -37,7 +37,16 @@ class BuildCommand extends Command
 
 		// Get namespace prefix from configuration
 		$namespacePrefix = rtrim($config['build']['prefixer']['namespace_prefix'], '\\');
-		$packages = $config['build']['prefixer']['packages'] ?? [];
+		$packages = $config['build']['prefixer']['packages'] ?? null;
+
+		// If packages are not specified in config, read from composer.json
+		if (empty($packages)) {
+			$packages = $this->getProductionPackagesFromComposer($currentDir);
+			$output->writeln("<info>No packages specified in config. Auto-detected " . count($packages) . " production packages from composer.json</info>");
+			if (!empty($packages)) {
+				$output->writeln("<comment>Detected packages: " . implode(', ', $packages) . "</comment>");
+			}
+		}
 
 		// Collect all vendor namespaces from packages
 		$vendorNamespaces = $this->collectVendorNamespaces($currentDir, $packages);
@@ -92,6 +101,9 @@ class BuildCommand extends Command
 			if (!empty($packages)) {
 				$vendorDir = "$currentDir/vendor";
 				if (is_dir($vendorDir)) {
+					$copiedPackages = 0;
+					$skippedPackages = 0;
+					
 					foreach ($packages as $package) {
 						$packagePath = "$vendorDir/$package";
 						if (is_dir($packagePath)) {
@@ -105,13 +117,19 @@ class BuildCommand extends Command
 								'namespace'
 							);
 							$output->writeln("Copied and processed vendor package: $package");
+							$copiedPackages++;
 						} else {
 							$output->writeln("<warning>Vendor package not found: $package</warning>");
+							$skippedPackages++;
 						}
 					}
+					
+					$output->writeln("<info>Vendor packages summary: {$copiedPackages} copied, {$skippedPackages} skipped</info>");
 				} else {
-					$output->writeln("<warning>Vendor directory not found</warning>");
+					$output->writeln("<warning>Vendor directory not found. Please run 'composer install' first.</warning>");
 				}
+			} else {
+				$output->writeln("<comment>No vendor packages to copy.</comment>");
 			}
 
 			// Copy Composer autoload files
@@ -170,6 +188,102 @@ class BuildCommand extends Command
 			$output->writeln("<error>Error building package: {$e->getMessage()}</error>");
 			return Command::FAILURE;
 		}
+	}
+
+	/**
+	 * Get production packages from composer.json and their dependencies
+	 */
+	private function getProductionPackagesFromComposer(string $currentDir): array
+	{
+		$composerFile = "$currentDir/composer.json";
+		
+		if (!file_exists($composerFile)) {
+			return [];
+		}
+
+		$composerData = json_decode(file_get_contents($composerFile), true);
+		
+		if (!isset($composerData['require'])) {
+			return [];
+		}
+
+		// Get all production dependencies (excluding PHP and extensions)
+		$productionPackages = [];
+		foreach ($composerData['require'] as $package => $version) {
+			// Skip PHP and extensions
+			if (strpos($package, 'php') === 0 || strpos($package, 'ext-') === 0) {
+				continue;
+			}
+			$productionPackages[] = $package;
+		}
+
+		// Get all transitive dependencies
+		$allPackages = $this->getAllDependencies($currentDir, $productionPackages);
+		
+		return array_unique($allPackages);
+	}
+
+	/**
+	 * Get all dependencies including transitive ones
+	 */
+	private function getAllDependencies(string $currentDir, array $packages): array
+	{
+		$allDependencies = [];
+		$processed = [];
+		$vendorDir = "$currentDir/vendor";
+
+		$toProcess = $packages;
+		$maxDepth = 50; // Prevent infinite loops
+		$currentDepth = 0;
+
+		while (!empty($toProcess) && $currentDepth < $maxDepth) {
+			$package = array_shift($toProcess);
+			$currentDepth++;
+			
+			if (in_array($package, $processed)) {
+				continue;
+			}
+			
+			$processed[] = $package;
+			$allDependencies[] = $package;
+			
+			$packagePath = "$vendorDir/$package";
+			if (is_dir($packagePath)) {
+				$packageDeps = $this->getPackageDependencies($packagePath);
+				foreach ($packageDeps as $dep) {
+					if (!in_array($dep, $processed) && !in_array($dep, $toProcess)) {
+						$toProcess[] = $dep;
+					}
+				}
+			}
+		}
+
+		return $allDependencies;
+	}
+
+	/**
+	 * Get dependencies from a package's composer.json
+	 */
+	private function getPackageDependencies(string $packagePath): array
+	{
+		$composerFile = "$packagePath/composer.json";
+		$dependencies = [];
+
+		if (file_exists($composerFile)) {
+			$composerData = json_decode(file_get_contents($composerFile), true);
+			
+			if (isset($composerData['require'])) {
+				foreach ($composerData['require'] as $package => $version) {
+					// Skip PHP and extensions
+					if (strpos($package, 'php') === 0 || strpos($package, 'ext-') === 0) {
+						continue;
+					}
+					$dependencies[] = $package;
+				}
+			}
+		}
+
+		return $dependencies;
 	}
 
 	/**
