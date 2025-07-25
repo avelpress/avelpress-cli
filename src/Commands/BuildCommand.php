@@ -79,10 +79,10 @@ class BuildCommand extends Command
 			// Copy src directory with namespace replacement for vendor packages used
 			if (is_dir("$currentDir/src")) {
 				$this->copyDirectoryWithNamespaceReplacement(
-					"$currentDir/src", 
-					"$buildDir/src", 
-					$namespacePrefix, 
-					$vendorNamespaces, 
+					"$currentDir/src",
+					"$buildDir/src",
+					$namespacePrefix,
+					$vendorNamespaces,
 					'use'
 				);
 				$output->writeln("Copied and processed: src/");
@@ -98,10 +98,10 @@ class BuildCommand extends Command
 							$packageNamespaces = $this->getPackageNamespaces($packagePath);
 							$packageDest = "$buildDir/vendor/$package";
 							$this->copyDirectoryWithNamespaceReplacement(
-								$packagePath, 
-								$packageDest, 
-								$namespacePrefix, 
-								$packageNamespaces, 
+								$packagePath,
+								$packageDest,
+								$namespacePrefix,
+								$packageNamespaces,
 								'namespace'
 							);
 							$output->writeln("Copied and processed vendor package: $package");
@@ -133,11 +133,10 @@ class BuildCommand extends Command
 			$mainPhpFile = "$currentDir/$projectName.php";
 			if (file_exists($mainPhpFile)) {
 				$this->copyFileWithNamespaceReplacement(
-					$mainPhpFile, 
-					"$buildDir/$projectName.php", 
-					$namespacePrefix, 
-					$vendorNamespaces, 
-					'use'
+					$mainPhpFile,
+					"$buildDir/$projectName.php",
+					$namespacePrefix,
+					$vendorNamespaces
 				);
 				$output->writeln("Copied and processed: $projectName.php");
 			} else {
@@ -199,7 +198,7 @@ class BuildCommand extends Command
 	{
 		$composerFile = "$packagePath/composer.json";
 		$packageNamespaces = [];
-		
+
 		if (file_exists($composerFile)) {
 			$composerData = json_decode(file_get_contents($composerFile), true);
 			if (isset($composerData['autoload']['psr-4'])) {
@@ -229,7 +228,8 @@ class BuildCommand extends Command
 		);
 
 		foreach ($iterator as $item) {
-			$sourcePath = $item->getRealPath();
+			// Use getPathname() instead of getRealPath() to avoid resolving symlinks
+			$sourcePath = $item->getPathname();
 			$relativePath = str_replace($source . DIRECTORY_SEPARATOR, '', $sourcePath);
 			$destPath = $dest . DIRECTORY_SEPARATOR . $relativePath;
 
@@ -238,7 +238,9 @@ class BuildCommand extends Command
 					mkdir($destPath, 0755, true);
 				}
 			} else {
-				$this->copyFileWithNamespaceReplacement($sourcePath, $destPath, $namespacePrefix, $namespacesToReplace, $replacementType);
+				// For files, we still need the real path for reading content
+				$realSourcePath = $item->getRealPath();
+				$this->copyFileWithNamespaceReplacement($realSourcePath, $destPath, $namespacePrefix, $namespacesToReplace, $replacementType);
 			}
 		}
 	}
@@ -246,7 +248,7 @@ class BuildCommand extends Command
 	/**
 	 * Copy a single file with namespace replacement if it's a PHP file
 	 */
-	private function copyFileWithNamespaceReplacement(string $source, string $dest, string $namespacePrefix, array $namespacesToReplace, string $replacementType): void
+	private function copyFileWithNamespaceReplacement(string $source, string $dest, string $namespacePrefix, array $namespacesToReplace, string $replacementType = null): void
 	{
 		if (pathinfo($source, PATHINFO_EXTENSION) === 'php') {
 			$content = file_get_contents($source);
@@ -261,36 +263,36 @@ class BuildCommand extends Command
 	/**
 	 * Replace namespaces in content based on replacement type
 	 */
-	private function replaceNamespaces(string $content, string $namespacePrefix, array $namespacesToReplace, string $replacementType): string
+	private function replaceNamespaces(string $content, string $namespacePrefix, array $namespacesToReplace, string $replacementType = null): string
 	{
 		foreach ($namespacesToReplace as $namespace => $path) {
 			$cleanNamespace = rtrim($namespace, '\\');
 			$prefixedNamespace = "$namespacePrefix\\$cleanNamespace";
-			
+
 			// Only replace if the namespace doesn't already have the prefix
 			if (strpos($content, $prefixedNamespace) === false) {
-				if ($replacementType === 'namespace') {
+				if ($replacementType === 'namespace' || $replacementType === null) {
 					// Replace namespace declarations for vendor packages (only if prefix is not already present)
 					$content = preg_replace(
 						'/^namespace\s+(?!' . preg_quote($namespacePrefix, '/') . '\\\\)' . preg_quote($cleanNamespace, '/') . '(\\\\[^;]*)?;/m',
 						"namespace $prefixedNamespace$1;",
 						$content
 					);
-					
+
 					// Replace use statements within vendor packages (only if prefix is not already present)
 					$content = preg_replace(
 						'/^use\s+(?!' . preg_quote($namespacePrefix, '/') . '\\\\)' . preg_quote($cleanNamespace, '/') . '(\\\\[^;]*)?;/m',
 						"use $prefixedNamespace$1;",
 						$content
 					);
-					
+
 					// Replace use statements with aliases (only if prefix is not already present)
 					$content = preg_replace(
 						'/^use\s+(?!' . preg_quote($namespacePrefix, '/') . '\\\\)' . preg_quote($cleanNamespace, '/') . '(\\\\[^\\s]+)\s+as\s+([^;]+);/m',
 						"use $prefixedNamespace$1 as $2;",
 						$content
 					);
-					
+
 					// Replace class references in code (only if prefix is not already present)
 					$content = preg_replace(
 						'/(\s|^|\s\\\\|new\s+|instanceof\s+|extends\s+|implements\s+)(?!' . preg_quote($namespacePrefix, '/') . '\\\\)' . preg_quote($cleanNamespace, '/') . '\\\\/',
@@ -304,7 +306,7 @@ class BuildCommand extends Command
 						"use $prefixedNamespace$1;",
 						$content
 					);
-					
+
 					// Replace use statements with aliases (only if prefix is not already present)
 					$content = preg_replace(
 						'/^use\s+(?!' . preg_quote($namespacePrefix, '/') . '\\\\)' . preg_quote($cleanNamespace, '/') . '(\\\\[^\\s]+)\s+as\s+([^;]+);/m',
@@ -332,7 +334,7 @@ class BuildCommand extends Command
 	{
 		$composerDir = "$sourceVendorDir/composer";
 		$destComposerDir = "$destVendorDir/composer";
-		
+
 		if (!is_dir($composerDir)) {
 			return;
 		}
@@ -425,16 +427,19 @@ class BuildCommand extends Command
 		);
 
 		foreach ($iterator as $item) {
-			$sourcePath = $item->getRealPath();
+			// Use getPathname() instead of getRealPath() to avoid resolving symlinks
+			$sourcePath = $item->getPathname();
 			$relativePath = str_replace($source . DIRECTORY_SEPARATOR, '', $sourcePath);
 			$destPath = $destination . DIRECTORY_SEPARATOR . $relativePath;
-			
+
 			if ($item->isDir()) {
 				if (!is_dir($destPath)) {
 					mkdir($destPath, 0755, true);
 				}
 			} else {
-				copy($sourcePath, $destPath);
+				// For files, we need the real path for copying
+				$realSourcePath = $item->getRealPath();
+				copy($realSourcePath, $destPath);
 			}
 		}
 	}
@@ -469,7 +474,7 @@ class BuildCommand extends Command
 		}
 
 		$zip = new ZipArchive();
-		
+
 		if ($zip->open($zipFile, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== TRUE) {
 			throw new \Exception("Cannot create ZIP file: $zipFile");
 		}
@@ -480,13 +485,16 @@ class BuildCommand extends Command
 		);
 
 		foreach ($iterator as $file) {
-			$filePath = $file->getRealPath();
+			// Use getPathname() for relative path calculation
+			$filePath = $file->getPathname();
 			$relativePath = "$projectName/" . substr($filePath, strlen($sourceDir) + 1);
 
 			if ($file->isDir()) {
 				$zip->addEmptyDir($relativePath);
 			} else {
-				$zip->addFile($filePath, $relativePath);
+				// Use getRealPath() for actual file content
+				$realFilePath = $file->getRealPath();
+				$zip->addFile($realFilePath, $relativePath);
 			}
 		}
 
