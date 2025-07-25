@@ -1,6 +1,6 @@
 <?php
 
-namespace AvelPressCli\Commands;
+namespace AvelPress\Cli\Commands;
 
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -59,9 +59,9 @@ class MakeMigrationCommand extends Command
 		}
 
 		$template = "<?php\n\n";
-		$template .= "use AvelPress\Database\Migrations\Migration;\n";
-		$template .= "use AvelPress\Database\Schema\Blueprint;\n";
-		$template .= "use AvelPress\Database\Schema\Schema;\n\n";
+		$template .= "use AvelPress\\Database\\Migrations\\Migration;\n";
+		$template .= "use AvelPress\\Database\\Schema\\Blueprint;\n";
+		$template .= "use AvelPress\\Database\\Schema\\Schema;\n\n";
 		$template .= "defined( 'ABSPATH' ) || exit;\n\n";
 		$template .= "return new class extends Migration {\n";
 		$template .= "\t/**\n";

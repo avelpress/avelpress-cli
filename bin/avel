@@ -3,7 +3,7 @@
 
 require __DIR__ . '/../vendor/autoload.php';
 
-use AvelPressCli\Kernel;
+use AvelPress\Cli\Kernel;
 
 $kernel = new Kernel();
 $kernel->run();

@@ -1,7 +1,8 @@
 <?php
 
-namespace AvelPressCli\Commands;
+namespace AvelPress\Cli\Commands;
 
+use AvelPress\Cli\Helpers\NamespaceHelper;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
@@ -101,21 +102,27 @@ class NewCommand extends Command
 
     private function createApplicationFiles(string $basePath, string $vendor, string $packageName, string $fullName, string $type, OutputInterface $output): void
     {
-        $this->createComposerJson($basePath, $vendor, $packageName, $fullName, $type, $output);
+        $packageNamespace = NamespaceHelper::getPackageNamespace($vendor, $packageName);
 
-        $this->createMainFile($basePath, $vendor, $packageName, $fullName, $type, $output);
+        $this->createComposerJson($basePath, $vendor, $packageName, $fullName, $type, $packageNamespace, $output);
 
-        $this->createProvidersFile($basePath, $vendor, $packageName, $output);
+        $this->createMainFile($basePath, $vendor, $packageName, $fullName, $type, $packageNamespace, $output);
 
-        $this->createAppServiceProvider($basePath, $vendor, $packageName, $output);
+        $this->createProvidersFile($basePath, $packageNamespace, $output);
+
+        $this->createAppServiceProvider($basePath, $packageNamespace, $output);
 
         $this->createAppConfigFile($basePath, $fullName, $output);
 
         $this->createApiRoutesFile($basePath, $output);
+
+        $this->createAvelPressConfigFile($basePath, $packageNamespace, $output);
+
+        $this->createGitignoreFile($basePath, $output);
     }
 
 
-    private function createComposerJson(string $basePath, string $vendor, string $packageName, string $fullName, string $type, OutputInterface $output): void
+    private function createComposerJson(string $basePath, string $vendor, string $packageName, string $fullName, string $type, string $composerNamespace, OutputInterface $output): void
     {
         $composer = [
             'name' => $vendor . '/' . strtolower($packageName),
@@ -132,9 +139,14 @@ class NewCommand extends Command
             'require' => [
                 'avelpress/avelpress' => '^1.0'
             ],
+            'require-dev' => [
+                'php-stubs/wordpress-stubs' => '^6.8',
+                'php-stubs/woocommerce-stubs' => '^9.9'
+            ],
             'autoload' => [
                 'psr-4' => [
-                    ucfirst($vendor) . '\\' . str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $packageName))) . '\\' => 'src/'
+                    $composerNamespace . "\\" => 'src/',
+                    $composerNamespace . "\\App\\" => 'src/app'
                 ]
             ]
         ];
@@ -145,15 +157,19 @@ class NewCommand extends Command
         $output->writeln("Created file: composer.json");
     }
 
-    private function createMainFile(string $basePath, string $vendor, string $packageName, string $fullName, string $type, OutputInterface $output): void
+    private function createMainFile(string $basePath, string $vendor, string $packageName, string $fullName, string $type, string $packageNamespace, OutputInterface $output): void
     {
         $filename = $basePath . '/' . $fullName . '.php';
 
+        $vendorDisplay = ucfirst($vendor);
+        $packageDisplay = ucfirst($packageName);
+
         $content = "<?php\n";
         $content .= "/**\n";
+        $content .= " * @package {$packageNamespace}\n\n";
 
         if ($type === 'plugin') {
-            $content .= " * Plugin Name: " . ucfirst($vendor) . ' ' . ucfirst($packageName) . "\n";
+            $content .= " * Plugin Name: {$vendorDisplay} {$packageDisplay}\n";
             $content .= " * Description: A new AvelPress plugin.\n";
             $content .= " * Version: 1.0.0\n";
             $content .= " * Requires at least: 6.0\n";
@@ -164,7 +180,7 @@ class NewCommand extends Command
             $content .= " * License URI: http://www.gnu.org/licenses/gpl-2.0.txt\n";
             $content .= " */\n\n";
         } else {
-            $content .= " * Theme Name: " . ucfirst($vendor) . ' ' . ucfirst($packageName) . "\n";
+            $content .= " * Theme Name: {$vendorDisplay} {$packageDisplay}\n";
             $content .= " * Description: A new AvelPress theme.\n";
             $content .= " * Version: 1.0.0\n";
             $content .= " * Author: Your Name\n";
@@ -172,7 +188,7 @@ class NewCommand extends Command
             $content .= " */\n\n";
         }
 
-        $content .= "use AvelPress\Avelpress;\n\n";
+        $content .= "use AvelPress\\Avelpress;\n\n";
         $content .= "defined( 'ABSPATH' ) || exit;\n\n";
 
         $nameWithUnderscore = str_replace('-', '_', $fullName);
@@ -189,32 +205,26 @@ class NewCommand extends Command
         $output->writeln("Created file: {$fullName}.php");
     }
 
-    private function createProvidersFile(string $basePath, string $vendor, string $packageName, OutputInterface $output): void
+    private function createProvidersFile(string $basePath, string $packageNamespace, OutputInterface $output): void
     {
         $filename = $basePath . '/src/bootstrap/providers.php';
-
-        $vendorPascalCase = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $vendor)));
-        $packagePascalCase = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $packageName)));
 
         $content = "<?php\n\n";
         $content .= "defined( 'ABSPATH' ) || exit;\n\n";
         $content .= "return [\n";
-        $content .= "\t{$vendorPascalCase}\\{$packagePascalCase}\\App\\Providers\\AppServiceProvider::class,\n";
+        $content .= "\t{$packageNamespace}\\App\\Providers\\AppServiceProvider::class,\n";
         $content .= "];\n";
 
         file_put_contents($filename, $content);
         $output->writeln("Created file: src/bootstrap/providers.php");
     }
 
-    private function createAppServiceProvider(string $basePath, string $vendor, string $packageName, OutputInterface $output): void
+    private function createAppServiceProvider(string $basePath, string $packageNamespace, OutputInterface $output): void
     {
         $filename = $basePath . '/src/app/Providers/AppServiceProvider.php';
 
-        $vendorPascalCase = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $vendor)));
-        $packagePascalCase = str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $packageName)));
-
         $content = "<?php\n\n";
-        $content .= "namespace {$vendorPascalCase}\\{$packagePascalCase}\\App\\Providers;\n\n";
+        $content .= "namespace {$packageNamespace}\\App\\Providers;\n\n";
         $content .= "use AvelPress\\Support\\ServiceProvider;\n\n";
         $content .= "defined( 'ABSPATH' ) || exit;\n\n";
         $content .= "class AppServiceProvider extends ServiceProvider {\n";
@@ -268,5 +278,36 @@ class NewCommand extends Command
 
         file_put_contents($filename, $content);
         $output->writeln("Created file: src/routes/api.php");
+    }
+
+    private function createAvelPressConfigFile(string $basePath, string $packageNamespace, OutputInterface $output): void
+    {
+        $filename = $basePath . '/avelpress.config.php';
+
+        $content = "<?php\n\n";
+        $content .= "return [\n";
+        $content .= "\t'build' => [\n";
+        $content .= "\t\t'prefixer' => [\n";
+        $content .= "\t\t\t'namespace_prefix' => '{$packageNamespace}\\',\n";
+        $content .= "\t\t\t'packages' => [\n";
+        $content .= "\t\t\t\t'avelpress/avelpress',\n";
+        $content .= "\t\t\t]\n";
+        $content .= "\t\t]\n";
+        $content .= "\t]\n";
+        $content .= "];\n";
+
+        file_put_contents($filename, $content);
+        $output->writeln("Created file: avelpress.config.php");
+    }
+
+    private function createGitignoreFile(string $basePath, OutputInterface $output): void
+    {
+        $filename = $basePath . '/.gitignore';
+
+        $content = "/vendor\n";
+        $content .= "/dist\n";
+
+        file_put_contents($filename, $content);
+        $output->writeln("Created file: .gitignore");
     }
 }
