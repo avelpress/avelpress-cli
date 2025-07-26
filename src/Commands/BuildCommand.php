@@ -39,18 +39,6 @@ class BuildCommand extends Command
 		$namespacePrefix = rtrim($config['build']['prefixer']['namespace_prefix'], '\\');
 		$packages = $config['build']['prefixer']['packages'] ?? null;
 
-		// If packages are not specified in config, read from composer.json
-		if (empty($packages)) {
-			$packages = $this->getProductionPackagesFromComposer($currentDir);
-			$output->writeln("<info>No packages specified in config. Auto-detected " . count($packages) . " production packages from composer.json</info>");
-			if (!empty($packages)) {
-				$output->writeln("<comment>Detected packages: " . implode(', ', $packages) . "</comment>");
-			}
-		}
-
-		// Collect all vendor namespaces from packages
-		$vendorNamespaces = $this->collectVendorNamespaces($currentDir, $packages);
-
 		// Get project name from current directory
 		$projectName = basename($currentDir);
 		$distDir = "$currentDir/dist";
@@ -87,23 +75,86 @@ class BuildCommand extends Command
 
 			// Copy src directory with namespace replacement for vendor packages used
 			if (is_dir("$currentDir/src")) {
+				// We'll collect vendor namespaces after handling vendor packages
 				$this->copyDirectoryWithNamespaceReplacement(
 					"$currentDir/src",
 					"$buildDir/src",
 					$namespacePrefix,
-					$vendorNamespaces,
+					[], // Will be updated later
 					'use'
 				);
 				$output->writeln("Copied and processed: src/");
 			}
 
-			// Copy vendor packages specified in configuration
-			if (!empty($packages)) {
+			// Handle vendor packages based on configuration
+			$vendorNamespaces = [];
+			if (empty($packages)) {
+				// New logic: copy composer.json, remove require-dev, run composer install
+				$output->writeln("<info>No packages specified in config. Using composer.json approach.</info>");
+
+				// Copy and modify composer.json
+				$composerFile = "$currentDir/composer.json";
+				if (!file_exists($composerFile)) {
+					$output->writeln("<error>composer.json not found in project root.</error>");
+					return Command::FAILURE;
+				}
+
+				$composerData = json_decode(file_get_contents($composerFile), true);
+				if ($composerData === null) {
+					$output->writeln("<error>Invalid composer.json file.</error>");
+					return Command::FAILURE;
+				}
+
+				// Remove require-dev section
+				if (isset($composerData['require-dev'])) {
+					unset($composerData['require-dev']);
+					$output->writeln("Removed require-dev section from composer.json");
+				}
+
+				// Save modified composer.json to build directory
+				$buildComposerFile = "$buildDir/composer.json";
+				file_put_contents($buildComposerFile, json_encode($composerData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+				$output->writeln("Copied modified composer.json to: $buildComposerFile");
+
+				// Run composer install in build directory
+				$output->writeln("<info>Running composer install in build directory...</info>");
+				$composerCommand = "cd " . escapeshellarg($buildDir) . " && composer install --no-dev --ignore-platform-reqs --optimize-autoloader 2>&1";
+				$composerOutput = shell_exec($composerCommand);
+
+				if ($composerOutput === null) {
+					$output->writeln("<error>Failed to execute composer install.</error>");
+					return Command::FAILURE;
+				}
+
+				$output->writeln("<comment>Composer install output:</comment>");
+				$output->writeln($composerOutput);
+
+				// Check if vendor directory was created
+				$buildVendorDir = "$buildDir/vendor";
+				if (!is_dir($buildVendorDir)) {
+					$output->writeln("<error>Vendor directory was not created after composer install.</error>");
+					return Command::FAILURE;
+				}
+
+				// Get all installed packages from the build vendor directory
+				$packages = $this->getInstalledPackages($buildVendorDir);
+				$output->writeln("<info>Found " . count($packages) . " installed packages</info>");
+
+				// Collect vendor namespaces from installed packages
+				$vendorNamespaces = $this->collectVendorNamespaces($buildDir, $packages);
+
+				// Apply namespace prefixing to vendor packages
+				$this->applyNamespacePrefixingToVendor($buildVendorDir, $namespacePrefix, $vendorNamespaces, $output);
+
+			} else {
+				// Original logic: copy specific packages from existing vendor directory
+				$output->writeln("<info>Using specified packages from config: " . implode(', ', $packages) . "</info>");
+
 				$vendorDir = "$currentDir/vendor";
 				if (is_dir($vendorDir)) {
 					$copiedPackages = 0;
 					$skippedPackages = 0;
-					
+
 					foreach ($packages as $package) {
 						$packagePath = "$vendorDir/$package";
 						if (is_dir($packagePath)) {
@@ -123,22 +174,32 @@ class BuildCommand extends Command
 							$skippedPackages++;
 						}
 					}
-					
+
 					$output->writeln("<info>Vendor packages summary: {$copiedPackages} copied, {$skippedPackages} skipped</info>");
+
+					// Collect vendor namespaces from specified packages
+					$vendorNamespaces = $this->collectVendorNamespaces($currentDir, $packages);
 				} else {
 					$output->writeln("<warning>Vendor directory not found. Please run 'composer install' first.</warning>");
 				}
-			} else {
-				$output->writeln("<comment>No vendor packages to copy.</comment>");
 			}
 
-			// Copy Composer autoload files
-			if (!empty($packages)) {
-				$vendorDir = "$currentDir/vendor";
-				if (is_dir($vendorDir)) {
-					$this->copyComposerAutoloadFiles($vendorDir, "$buildDir/vendor", $namespacePrefix, $vendorNamespaces);
-					$output->writeln("Copied and processed Composer autoload files");
-				}
+			// Copy Composer autoload files (if vendor directory exists)
+			if (is_dir("$buildDir/vendor")) {
+				$this->copyComposerAutoloadFiles("$buildDir/vendor", "$buildDir/vendor", $namespacePrefix, $vendorNamespaces);
+				$output->writeln("Copied and processed Composer autoload files");
+			}
+
+			// Re-process src directory with collected vendor namespaces
+			if (is_dir("$currentDir/src") && !empty($vendorNamespaces)) {
+				$this->copyDirectoryWithNamespaceReplacement(
+					"$currentDir/src",
+					"$buildDir/src",
+					$namespacePrefix,
+					$vendorNamespaces,
+					'use'
+				);
+				$output->writeln("Re-processed src/ with vendor namespaces");
 			}
 
 			// Copy assets directory if exists
@@ -191,18 +252,142 @@ class BuildCommand extends Command
 	}
 
 	/**
+	 * Get all installed packages from vendor directory
+	 */
+	private function getInstalledPackages(string $vendorDir): array
+	{
+		$packages = [];
+		$installedFile = "$vendorDir/composer/installed.json";
+
+		if (file_exists($installedFile)) {
+			$installedData = json_decode(file_get_contents($installedFile), true);
+
+			if (isset($installedData['packages'])) {
+				// Composer 2.x format
+				foreach ($installedData['packages'] as $package) {
+					if (isset($package['name'])) {
+						$packages[] = $package['name'];
+					}
+				}
+			} elseif (is_array($installedData)) {
+				// Composer 1.x format
+				foreach ($installedData as $package) {
+					if (isset($package['name'])) {
+						$packages[] = $package['name'];
+					}
+				}
+			}
+		}
+
+		// Fallback: scan vendor directory
+		if (empty($packages) && is_dir($vendorDir)) {
+			$vendorIterator = new \DirectoryIterator($vendorDir);
+			foreach ($vendorIterator as $vendorItem) {
+				if ($vendorItem->isDot() || $vendorItem->getFilename() === 'composer') {
+					continue;
+				}
+
+				if ($vendorItem->isDir()) {
+					$vendorName = $vendorItem->getFilename();
+					$vendorPath = $vendorItem->getPathname();
+
+					$packageIterator = new \DirectoryIterator($vendorPath);
+					foreach ($packageIterator as $packageItem) {
+						if ($packageItem->isDot()) {
+							continue;
+						}
+
+						if ($packageItem->isDir()) {
+							$packageName = $packageItem->getFilename();
+							$packages[] = "$vendorName/$packageName";
+						}
+					}
+				}
+			}
+		}
+
+		return $packages;
+	}
+
+	/**
+	 * Apply namespace prefixing to all vendor packages
+	 */
+	private function applyNamespacePrefixingToVendor(string $vendorDir, string $namespacePrefix, array $vendorNamespaces, OutputInterface $output): void
+	{
+		if (!is_dir($vendorDir)) {
+			return;
+		}
+
+		$vendorIterator = new \DirectoryIterator($vendorDir);
+		foreach ($vendorIterator as $vendorItem) {
+			if ($vendorItem->isDot() || $vendorItem->getFilename() === 'composer') {
+				continue;
+			}
+
+			if ($vendorItem->isDir()) {
+				$vendorName = $vendorItem->getFilename();
+				$vendorPath = $vendorItem->getPathname();
+
+				$packageIterator = new \DirectoryIterator($vendorPath);
+				foreach ($packageIterator as $packageItem) {
+					if ($packageItem->isDot()) {
+						continue;
+					}
+
+					if ($packageItem->isDir()) {
+						$packageName = $packageItem->getFilename();
+						$packagePath = $packageItem->getPathname();
+						$fullPackageName = "$vendorName/$packageName";
+
+						// Get package namespaces
+						$packageNamespaces = $this->getPackageNamespaces($packagePath);
+
+						// Apply namespace prefixing to this package
+						$this->applyNamespacePrefixingToDirectory($packagePath, $namespacePrefix, $packageNamespaces);
+
+						$output->writeln("Applied namespace prefixing to: $fullPackageName");
+					}
+				}
+			}
+		}
+	}
+
+	/**
+	 * Apply namespace prefixing to a directory
+	 */
+	private function applyNamespacePrefixingToDirectory(string $dir, string $namespacePrefix, array $packageNamespaces): void
+	{
+		if (!is_dir($dir)) {
+			return;
+		}
+
+		$iterator = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS),
+			\RecursiveIteratorIterator::SELF_FIRST
+		);
+
+		foreach ($iterator as $item) {
+			if ($item->isFile() && pathinfo($item->getPathname(), PATHINFO_EXTENSION) === 'php') {
+				$content = file_get_contents($item->getPathname());
+				$content = $this->replaceNamespaces($content, $namespacePrefix, $packageNamespaces, 'namespace');
+				file_put_contents($item->getPathname(), $content);
+			}
+		}
+	}
+
+	/**
 	 * Get production packages from composer.json and their dependencies
 	 */
 	private function getProductionPackagesFromComposer(string $currentDir): array
 	{
 		$composerFile = "$currentDir/composer.json";
-		
+
 		if (!file_exists($composerFile)) {
 			return [];
 		}
 
 		$composerData = json_decode(file_get_contents($composerFile), true);
-		
+
 		if (!isset($composerData['require'])) {
 			return [];
 		}
@@ -219,7 +404,7 @@ class BuildCommand extends Command
 
 		// Get all transitive dependencies
 		$allPackages = $this->getAllDependencies($currentDir, $productionPackages);
-		
+
 		return array_unique($allPackages);
 	}
 
@@ -239,14 +424,14 @@ class BuildCommand extends Command
 		while (!empty($toProcess) && $currentDepth < $maxDepth) {
 			$package = array_shift($toProcess);
 			$currentDepth++;
-			
+
 			if (in_array($package, $processed)) {
 				continue;
 			}
-			
+
 			$processed[] = $package;
 			$allDependencies[] = $package;
-			
+
 			$packagePath = "$vendorDir/$package";
 			if (is_dir($packagePath)) {
 				$packageDeps = $this->getPackageDependencies($packagePath);
@@ -271,7 +456,7 @@ class BuildCommand extends Command
 
 		if (file_exists($composerFile)) {
 			$composerData = json_decode(file_get_contents($composerFile), true);
-			
+
 			if (isset($composerData['require'])) {
 				foreach ($composerData['require'] as $package => $version) {
 					// Skip PHP and extensions
@@ -522,17 +707,19 @@ class BuildCommand extends Command
 				);
 			}
 		}
-
-		// Copy installed.json if exists (no processing needed)
-		if (file_exists("$composerDir/installed.json")) {
-			copy("$composerDir/installed.json", "$destComposerDir/installed.json");
-		}
 	}
 
-	private function copyDirectory(string $source, string $destination): void
+	/**
+	 * Copy a directory recursively
+	 */
+	private function copyDirectory(string $source, string $dest): void
 	{
-		if (!is_dir($destination)) {
-			mkdir($destination, 0755, true);
+		if (!is_dir($source)) {
+			return;
+		}
+
+		if (!is_dir($dest)) {
+			mkdir($dest, 0755, true);
 		}
 
 		$iterator = new \RecursiveIteratorIterator(
@@ -541,56 +728,55 @@ class BuildCommand extends Command
 		);
 
 		foreach ($iterator as $item) {
-			// Use getPathname() instead of getRealPath() to avoid resolving symlinks
 			$sourcePath = $item->getPathname();
 			$relativePath = str_replace($source . DIRECTORY_SEPARATOR, '', $sourcePath);
-			$destPath = $destination . DIRECTORY_SEPARATOR . $relativePath;
+			$destPath = $dest . DIRECTORY_SEPARATOR . $relativePath;
 
 			if ($item->isDir()) {
 				if (!is_dir($destPath)) {
 					mkdir($destPath, 0755, true);
 				}
 			} else {
-				// For files, we need the real path for copying
-				$realSourcePath = $item->getRealPath();
-				copy($realSourcePath, $destPath);
+				copy($item->getRealPath(), $destPath);
 			}
 		}
 	}
 
+	/**
+	 * Remove a directory recursively
+	 */
 	private function removeDirectory(string $dir): void
 	{
 		if (!is_dir($dir)) {
 			return;
 		}
 
-		$files = new \RecursiveIteratorIterator(
+		$iterator = new \RecursiveIteratorIterator(
 			new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS),
 			\RecursiveIteratorIterator::CHILD_FIRST
 		);
 
-		foreach ($files as $fileinfo) {
-			if ($fileinfo->isDir()) {
-				rmdir($fileinfo->getRealPath());
+		foreach ($iterator as $item) {
+			if ($item->isDir()) {
+				rmdir($item->getRealPath());
 			} else {
-				unlink($fileinfo->getRealPath());
+				unlink($item->getRealPath());
 			}
 		}
 
 		rmdir($dir);
 	}
 
+	/**
+	 * Create a ZIP archive from a directory
+	 */
 	private function createZipArchive(string $sourceDir, string $zipFile, string $projectName): void
 	{
-		// Double check that ZIP extension is available
-		if (!extension_loaded('zip')) {
-			throw new \Exception("ZIP extension is not available. Cannot create ZIP file.");
-		}
-
 		$zip = new ZipArchive();
+		$result = $zip->open($zipFile, ZipArchive::CREATE | ZipArchive::OVERWRITE);
 
-		if ($zip->open($zipFile, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== TRUE) {
-			throw new \Exception("Cannot create ZIP file: $zipFile");
+		if ($result !== TRUE) {
+			throw new \Exception("Cannot create ZIP file: $zipFile (Error code: $result)");
 		}
 
 		$iterator = new \RecursiveIteratorIterator(
@@ -598,20 +784,19 @@ class BuildCommand extends Command
 			\RecursiveIteratorIterator::SELF_FIRST
 		);
 
-		foreach ($iterator as $file) {
-			// Use getPathname() for relative path calculation
-			$filePath = $file->getPathname();
-			$relativePath = "$projectName/" . substr($filePath, strlen($sourceDir) + 1);
+		foreach ($iterator as $item) {
+			$sourcePath = $item->getPathname();
+			$relativePath = str_replace($sourceDir . DIRECTORY_SEPARATOR, '', $sourcePath);
+			$zipPath = $projectName . DIRECTORY_SEPARATOR . $relativePath;
 
-			if ($file->isDir()) {
-				$zip->addEmptyDir($relativePath);
+			if ($item->isDir()) {
+				$zip->addEmptyDir($zipPath);
 			} else {
-				// Use getRealPath() for actual file content
-				$realFilePath = $file->getRealPath();
-				$zip->addFile($realFilePath, $relativePath);
+				$zip->addFile($item->getRealPath(), $zipPath);
 			}
 		}
 
 		$zip->close();
 	}
 }
+
