@@ -98,7 +98,7 @@ class BuildCommand extends Command
 			if (empty($packages)) {
 				// New logic: copy composer.json, remove require-dev, run composer install
 				$output->writeln("<info>No packages specified in config. Using composer.json approach.</info>");
-				
+
 				// Copy and modify composer.json
 				$composerFile = "$currentDir/composer.json";
 				if (!file_exists($composerFile)) {
@@ -118,6 +118,20 @@ class BuildCommand extends Command
 					$output->writeln("Removed require-dev section from composer.json");
 				}
 
+				// If repositories section exists, set options['symlink'] = false for each repository
+				if (isset($composerData['repositories']) && is_array($composerData['repositories'])) {
+					foreach ($composerData['repositories'] as &$repo) {
+						if (is_array($repo)) {
+							if (!isset($repo['options']) || !is_array($repo['options'])) {
+								$repo['options'] = [];
+							}
+							$repo['options']['symlink'] = false;
+						}
+					}
+					unset($repo); // break reference
+					$output->writeln("Set options['symlink'] = false for all repositories in composer.json");
+				}
+
 				// Save modified composer.json to build directory
 				$buildComposerFile = "$buildDir/composer.json";
 				file_put_contents($buildComposerFile, json_encode($composerData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -131,7 +145,7 @@ class BuildCommand extends Command
 				}
 				$composerCommand = "cd " . escapeshellarg($buildDir) . " && $composerInstallCmd 2>&1";
 				$composerOutput = shell_exec($composerCommand);
-				
+
 				if ($composerOutput === null) {
 					$output->writeln("<error>Failed to execute composer install.</error>");
 					return Command::FAILURE;
@@ -150,10 +164,10 @@ class BuildCommand extends Command
 				// Get all installed packages from the build vendor directory
 				$packages = $this->getInstalledPackages($buildVendorDir);
 				$output->writeln("<info>Found " . count($packages) . " installed packages</info>");
-				
+
 				// Collect vendor namespaces from installed packages
 				$vendorNamespaces = $this->collectVendorNamespaces($buildDir, $packages);
-				
+
 				// Apply namespace prefixing to vendor packages
 				$this->applyNamespacePrefixingToVendor($buildVendorDir, $namespacePrefix, $vendorNamespaces, $output);
 
@@ -166,16 +180,16 @@ class BuildCommand extends Command
 					unlink("$buildDir/composer.lock");
 					$output->writeln("Removed composer.lock from build directory.");
 				}
-				
+
 			} else {
 				// Original logic: copy specific packages from existing vendor directory
 				$output->writeln("<info>Using specified packages from config: " . implode(', ', $packages) . "</info>");
-				
+
 				$vendorDir = "$currentDir/vendor";
 				if (is_dir($vendorDir)) {
 					$copiedPackages = 0;
 					$skippedPackages = 0;
-					
+
 					foreach ($packages as $package) {
 						$packagePath = "$vendorDir/$package";
 						if (is_dir($packagePath)) {
@@ -195,9 +209,9 @@ class BuildCommand extends Command
 							$skippedPackages++;
 						}
 					}
-					
+
 					$output->writeln("<info>Vendor packages summary: {$copiedPackages} copied, {$skippedPackages} skipped</info>");
-					
+
 					// Collect vendor namespaces from specified packages
 					$vendorNamespaces = $this->collectVendorNamespaces($currentDir, $packages);
 				} else {
@@ -279,10 +293,10 @@ class BuildCommand extends Command
 	{
 		$packages = [];
 		$installedFile = "$vendorDir/composer/installed.json";
-		
+
 		if (file_exists($installedFile)) {
 			$installedData = json_decode(file_get_contents($installedFile), true);
-			
+
 			if (isset($installedData['packages'])) {
 				// Composer 2.x format
 				foreach ($installedData['packages'] as $package) {
@@ -299,7 +313,7 @@ class BuildCommand extends Command
 				}
 			}
 		}
-		
+
 		// Fallback: scan vendor directory
 		if (empty($packages) && is_dir($vendorDir)) {
 			$vendorIterator = new \DirectoryIterator($vendorDir);
@@ -307,17 +321,17 @@ class BuildCommand extends Command
 				if ($vendorItem->isDot() || $vendorItem->getFilename() === 'composer') {
 					continue;
 				}
-				
+
 				if ($vendorItem->isDir()) {
 					$vendorName = $vendorItem->getFilename();
 					$vendorPath = $vendorItem->getPathname();
-					
+
 					$packageIterator = new \DirectoryIterator($vendorPath);
 					foreach ($packageIterator as $packageItem) {
 						if ($packageItem->isDot()) {
 							continue;
 						}
-						
+
 						if ($packageItem->isDir()) {
 							$packageName = $packageItem->getFilename();
 							$packages[] = "$vendorName/$packageName";
@@ -326,7 +340,7 @@ class BuildCommand extends Command
 				}
 			}
 		}
-		
+
 		return $packages;
 	}
 
@@ -344,28 +358,28 @@ class BuildCommand extends Command
 			if ($vendorItem->isDot() || $vendorItem->getFilename() === 'composer') {
 				continue;
 			}
-			
+
 			if ($vendorItem->isDir()) {
 				$vendorName = $vendorItem->getFilename();
 				$vendorPath = $vendorItem->getPathname();
-				
+
 				$packageIterator = new \DirectoryIterator($vendorPath);
 				foreach ($packageIterator as $packageItem) {
 					if ($packageItem->isDot()) {
 						continue;
 					}
-					
+
 					if ($packageItem->isDir()) {
 						$packageName = $packageItem->getFilename();
 						$packagePath = $packageItem->getPathname();
 						$fullPackageName = "$vendorName/$packageName";
-						
+
 						// Get package namespaces
 						$packageNamespaces = $this->getPackageNamespaces($packagePath);
-						
+
 						// Apply namespace prefixing to this package
 						$this->applyNamespacePrefixingToDirectory($packagePath, $namespacePrefix, $packageNamespaces);
-						
+
 						$output->writeln("Applied namespace prefixing to: $fullPackageName");
 					}
 				}
@@ -402,13 +416,13 @@ class BuildCommand extends Command
 	private function getProductionPackagesFromComposer(string $currentDir): array
 	{
 		$composerFile = "$currentDir/composer.json";
-		
+
 		if (!file_exists($composerFile)) {
 			return [];
 		}
 
 		$composerData = json_decode(file_get_contents($composerFile), true);
-		
+
 		if (!isset($composerData['require'])) {
 			return [];
 		}
@@ -425,7 +439,7 @@ class BuildCommand extends Command
 
 		// Get all transitive dependencies
 		$allPackages = $this->getAllDependencies($currentDir, $productionPackages);
-		
+
 		return array_unique($allPackages);
 	}
 
@@ -445,14 +459,14 @@ class BuildCommand extends Command
 		while (!empty($toProcess) && $currentDepth < $maxDepth) {
 			$package = array_shift($toProcess);
 			$currentDepth++;
-			
+
 			if (in_array($package, $processed)) {
 				continue;
 			}
-			
+
 			$processed[] = $package;
 			$allDependencies[] = $package;
-			
+
 			$packagePath = "$vendorDir/$package";
 			if (is_dir($packagePath)) {
 				$packageDeps = $this->getPackageDependencies($packagePath);
@@ -477,7 +491,7 @@ class BuildCommand extends Command
 
 		if (file_exists($composerFile)) {
 			$composerData = json_decode(file_get_contents($composerFile), true);
-			
+
 			if (isset($composerData['require'])) {
 				foreach ($composerData['require'] as $package => $version) {
 					// Skip PHP and extensions
