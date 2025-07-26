@@ -1,7 +1,16 @@
 #!/usr/bin/env php
 <?php
+$autoloadPath = __DIR__ . '/../vendor/autoload.php';
+$rootAutoloadPath = __DIR__ . '/../../../autoload.php';
 
-require __DIR__ . '/../vendor/autoload.php';
+if (file_exists($autoloadPath)) {
+    require_once $autoloadPath;
+} elseif (file_exists($rootAutoloadPath)) {
+    require_once $rootAutoloadPath;
+} else {
+    fwrite(STDERR, "Autoload file not found.\n");
+    exit(1);
+}
 
 use AvelPress\Cli\Kernel;
 
