@@ -46,12 +46,22 @@ class BuildCommand extends Command
 		$namespacePrefix = rtrim($config['build']['prefixer']['namespace_prefix'], '\\');
 		$packages = $config['build']['prefixer']['packages'] ?? null;
 
-		// Get project name from current directory
-		$projectName = basename($currentDir);
-		$distDir = "$currentDir/dist";
-		$buildDir = "$distDir/$projectName";
 
-		$output->writeln("<info>Building distribution package for: $projectName</info>");
+		// Get plugin_id from config
+		if (!isset($config['plugin_id']) || empty($config['plugin_id'])) {
+			$output->writeln("<error>Missing 'plugin_id' in avelpress.config.php. Please set 'plugin_id' in your configuration file. Build cancelled.</error>");
+			return Command::FAILURE;
+		}
+		$pluginId = $config['plugin_id'];
+
+		// Allow custom output directory via config
+		$outputDir = isset($config['build']['output_dir']) && !empty($config['build']['output_dir'])
+			? $config['build']['output_dir']
+			: 'dist';
+		$distDir = "$currentDir/$outputDir";
+		$buildDir = "$distDir/$pluginId";
+
+		$output->writeln("<info>Building distribution package for: $pluginId</info>");
 		$output->writeln("<info>Using namespace prefix: $namespacePrefix</info>");
 
 		// Check if ZIP extension is available
@@ -66,19 +76,20 @@ class BuildCommand extends Command
 
 		try {
 			// Create dist directory
+
 			if (!is_dir($distDir)) {
 				mkdir($distDir, 0755, true);
-				$output->writeln("Created directory: dist/");
+				$output->writeln("Created directory: $outputDir/");
 			} else {
 				// Clean existing dist directory
 				$this->removeDirectory($distDir);
 				mkdir($distDir, 0755, true);
-				$output->writeln("Cleaned and recreated directory: dist/");
+				$output->writeln("Cleaned and recreated directory: $outputDir/");
 			}
 
 			// Create build directory
 			mkdir($buildDir, 0755, true);
-			$output->writeln("Created directory: dist/$projectName/");
+			$output->writeln("Created directory: $outputDir/$pluginId/");
 
 			// Copy src directory with namespace replacement for vendor packages used
 			if (is_dir("$currentDir/src")) {
@@ -219,10 +230,11 @@ class BuildCommand extends Command
 				}
 			}
 
-			// Copy Composer autoload files (if vendor directory exists)
-			if (is_dir("$buildDir/vendor")) {
-				$this->copyComposerAutoloadFiles("$buildDir/vendor", "$buildDir/vendor", $namespacePrefix, $vendorNamespaces);
-				$output->writeln("Copied and processed Composer autoload files");
+			// Process Composer autoload files for namespace replacement (if vendor/composer exists)
+			$composerDir = "$buildDir/vendor/composer";
+			if (is_dir($composerDir)) {
+				$this->replaceNamespacesInComposerAutoloadFiles($composerDir, $namespacePrefix, $vendorNamespaces);
+				$output->writeln("Processed Composer autoload files with namespace replacement");
 			}
 
 			// Re-process src directory with collected vendor namespaces
@@ -231,8 +243,7 @@ class BuildCommand extends Command
 					"$currentDir/src",
 					"$buildDir/src",
 					$namespacePrefix,
-					$vendorNamespaces,
-					'use'
+					$vendorNamespaces
 				);
 				$output->writeln("Re-processed src/ with vendor namespaces");
 			}
@@ -244,17 +255,17 @@ class BuildCommand extends Command
 			}
 
 			// Copy main PHP file with namespace replacement
-			$mainPhpFile = "$currentDir/$projectName.php";
+			$mainPhpFile = "$currentDir/$pluginId.php";
 			if (file_exists($mainPhpFile)) {
 				$this->copyFileWithNamespaceReplacement(
 					$mainPhpFile,
-					"$buildDir/$projectName.php",
+					"$buildDir/$pluginId.php",
 					$namespacePrefix,
 					$vendorNamespaces
 				);
-				$output->writeln("Copied and processed: $projectName.php");
+				$output->writeln("Copied and processed: $pluginId.php");
 			} else {
-				$output->writeln("<warning>Main PHP file not found: $projectName.php</warning>");
+				$output->writeln("<warning>Main PHP file not found: $pluginId.php</warning>");
 			}
 
 			// Copy README.md if exists
@@ -265,16 +276,17 @@ class BuildCommand extends Command
 
 			// Create ZIP file (only if ZIP extension is available)
 			if (extension_loaded('zip')) {
-				$zipFile = "$distDir/$projectName.zip";
-				$this->createZipArchive($buildDir, $zipFile, $projectName);
-				$output->writeln("Created: $projectName.zip");
+				$zipFile = "$distDir/$pluginId.zip";
+				$this->createZipArchive($buildDir, $zipFile, $pluginId);
+				$output->writeln("Created: $pluginId.zip");
 			}
 
+
 			$output->writeln("<info>Build completed successfully!</info>");
-			$output->writeln("<comment>Distribution files created in: dist/</comment>");
-			$output->writeln("<comment>- Folder: dist/$projectName/</comment>");
+			$output->writeln("<comment>Distribution files created in: $outputDir/</comment>");
+			$output->writeln("<comment>- Folder: $outputDir/$pluginId/</comment>");
 			if (extension_loaded('zip')) {
-				$output->writeln("<comment>- ZIP: dist/$projectName.zip</comment>");
+				$output->writeln("<comment>- ZIP: $outputDir/$pluginId.zip</comment>");
 			} else {
 				$output->writeln("<comment>- ZIP: Skipped (ZIP extension not available)</comment>");
 			}
@@ -376,6 +388,14 @@ class BuildCommand extends Command
 
 						// Get package namespaces
 						$packageNamespaces = $this->getPackageNamespaces($packagePath);
+						$dependencies = $this->getPackageDependencies($packagePath);
+
+						foreach ($dependencies as $dependency) {
+							if (is_dir("$vendorDir/$dependency")) {
+								$dependencyNamespaces = $this->getPackageNamespaces("$vendorDir/$dependency");
+								$packageNamespaces = array_merge($packageNamespaces, $dependencyNamespaces);
+							}
+						}
 
 						// Apply namespace prefixing to this package
 						$this->applyNamespacePrefixingToDirectory($packagePath, $namespacePrefix, $packageNamespaces);
@@ -546,7 +566,7 @@ class BuildCommand extends Command
 	/**
 	 * Copy a directory recursively with namespace replacement in PHP files
 	 */
-	private function copyDirectoryWithNamespaceReplacement(string $source, string $dest, string $namespacePrefix, array $namespacesToReplace, string $replacementType): void
+	private function copyDirectoryWithNamespaceReplacement(string $source, string $dest, string $namespacePrefix, array $namespacesToReplace, $replacementType = null): void
 	{
 		if (!is_dir($source)) {
 			return;
@@ -597,7 +617,7 @@ class BuildCommand extends Command
 	/**
 	 * Replace namespaces in content based on replacement type
 	 */
-	private function replaceNamespaces(string $content, string $namespacePrefix, array $namespacesToReplace, string $replacementType = null): string
+	private function replaceNamespaces(string $content, string $namespacePrefix, array $namespacesToReplace, $replacementType = null): string
 	{
 		foreach ($namespacesToReplace as $namespace => $path) {
 			$cleanNamespace = rtrim($namespace, '\\');
@@ -650,7 +670,7 @@ class BuildCommand extends Command
 				} elseif ($replacementType === 'psr4') {
 					// Replace PSR-4 namespace keys in array declarations (only if prefix is not already present)
 					$content = preg_replace(
-						'/([\'"])(?!' . preg_quote($namespacePrefix, '/') . '\\\\)' . preg_quote($cleanNamespace, '/') . '(\\\\[^\'"]*)([\'"])\s*=>/m',
+						'/([\'"])(?!' . str_replace('\\', '\\\\\\\\', $namespacePrefix) . '\\\\)' . str_replace('\\', '\\\\\\\\', $cleanNamespace) . '(\\\\[^\'"]*)([\'"])\s*=>/m',
 						"$1" . str_replace('\\', '\\\\\\', $prefixedNamespace) . "$2$3 =>",
 						$content
 					);
@@ -664,42 +684,10 @@ class BuildCommand extends Command
 	/**
 	 * Copy Composer autoload files with namespace replacement
 	 */
-	private function copyComposerAutoloadFiles(string $sourceVendorDir, string $destVendorDir, string $namespacePrefix, array $vendorNamespaces): void
+	private function replaceNamespacesInComposerAutoloadFiles(string $composerDir, string $namespacePrefix, array $vendorNamespaces): void
 	{
-		$composerDir = "$sourceVendorDir/composer";
-		$destComposerDir = "$destVendorDir/composer";
-
 		if (!is_dir($composerDir)) {
 			return;
-		}
-
-		// Create composer directory in destination
-		if (!is_dir($destComposerDir)) {
-			mkdir($destComposerDir, 0755, true);
-		}
-
-		// Copy autoload.php (main autoloader file)
-		if (file_exists("$sourceVendorDir/autoload.php")) {
-			$this->copyFileWithNamespaceReplacement(
-				"$sourceVendorDir/autoload.php",
-				"$destVendorDir/autoload.php",
-				$namespacePrefix,
-				$vendorNamespaces,
-				'use'
-			);
-		}
-
-		// Files to copy directly (no namespace replacement needed)
-		$filesToCopyDirectly = [
-			'ClassLoader.php',
-			'LICENSE',
-			'platform_check.php'
-		];
-
-		foreach ($filesToCopyDirectly as $file) {
-			if (file_exists("$composerDir/$file")) {
-				copy("$composerDir/$file", "$destComposerDir/$file");
-			}
 		}
 
 		// Files that need different types of namespace replacement
@@ -722,7 +710,7 @@ class BuildCommand extends Command
 			if (file_exists("$composerDir/$file")) {
 				$this->copyFileWithNamespaceReplacement(
 					"$composerDir/$file",
-					"$destComposerDir/$file",
+					"$composerDir/$file",
 					$namespacePrefix,
 					$vendorNamespaces,
 					'use'
@@ -735,7 +723,7 @@ class BuildCommand extends Command
 			if (file_exists("$composerDir/$file")) {
 				$this->copyFileWithNamespaceReplacement(
 					"$composerDir/$file",
-					"$destComposerDir/$file",
+					"$composerDir/$file",
 					$namespacePrefix,
 					$vendorNamespaces,
 					'psr4'
