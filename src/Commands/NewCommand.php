@@ -43,10 +43,10 @@ class NewCommand extends Command
         // Get additional information for plugin
         $displayName = '';
         $shortDescription = '';
-        
+
         if ($type === 'plugin') {
             $helper = $this->getHelper('question');
-            
+
             // Ask for display name
             $displayNameQuestion = new Question('<question>Enter the display name for the plugin (max 80 characters): </question>');
             $displayNameQuestion->setValidator(function ($answer) {
@@ -56,7 +56,7 @@ class NewCommand extends Command
                 return $answer;
             });
             $displayName = $helper->ask($input, $output, $displayNameQuestion);
-            
+
             // Ask for short description
             $shortDescQuestion = new Question('<question>Enter a short description for the plugin (max 150 characters): </question>');
             $shortDescQuestion->setValidator(function ($answer) {
@@ -145,7 +145,7 @@ class NewCommand extends Command
 
         $this->createApiRoutesFile($basePath, $output);
 
-        $this->createAvelPressConfigFile($basePath, $packageNamespace, $output);
+        $this->createAvelPressConfigFile($basePath, $packageNamespace, $output, $fullName);
 
         if ($type === 'plugin') {
             $this->createReadmeTxtFile($basePath, $vendor, $displayName, $shortDescription, $output);
@@ -313,18 +313,18 @@ class NewCommand extends Command
         $output->writeln("Created file: src/routes/api.php");
     }
 
-    private function createAvelPressConfigFile(string $basePath, string $packageNamespace, OutputInterface $output): void
+    private function createAvelPressConfigFile(string $basePath, string $packageNamespace, OutputInterface $output, string $fullName): void
     {
         $filename = $basePath . '/avelpress.config.php';
 
         $content = "<?php\n\n";
         $content .= "return [\n";
+        $content .= "\t'plugin_id' => '$fullName',\n";
         $content .= "\t'build' => [\n";
+        $content .= "\t\t'output_dir' => 'dist',\n";
         $content .= "\t\t'prefixer' => [\n";
+        $content .= "\t\t\t'enabled' => true,\n";
         $content .= "\t\t\t'namespace_prefix' => '" . NamespaceHelper::escapeNamespace($packageNamespace) . "\\\\',\n";
-        $content .= "\t\t\t'packages' => [\n";
-        $content .= "\t\t\t\t'avelpress/avelpress',\n";
-        $content .= "\t\t\t]\n";
         $content .= "\t\t]\n";
         $content .= "\t]\n";
         $content .= "];\n";
