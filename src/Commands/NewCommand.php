@@ -34,6 +34,7 @@ class NewCommand extends Command
 
         [$vendor, $packageName] = explode('/', $name);
         $fullName = $vendor . '-' . $packageName;
+        $appId = strtolower($fullName);
 
         if (!in_array($type, ['plugin', 'theme'])) {
             $output->writeln("<error>Invalid type. Must be 'plugin' or 'theme'.</error>");
@@ -71,7 +72,7 @@ class NewCommand extends Command
         $output->writeln("<info>Creating new Avelpress {$type}: {$fullName}</info>");
 
         try {
-            $this->createApplicationStructure($vendor, $packageName, $fullName, $type, $displayName, $shortDescription, $output);
+            $this->createApplicationStructure($vendor, $packageName, $fullName, $type, $displayName, $shortDescription, $appId, $output);
             $output->writeln("<info>Application '{$fullName}' created successfully!</info>");
 
             $output->writeln("<comment>To finish setup, run the following commands:</comment>");
@@ -85,7 +86,7 @@ class NewCommand extends Command
         }
     }
 
-    private function createApplicationStructure(string $vendor, string $packageName, string $fullName, string $type, string $displayName, string $shortDescription, OutputInterface $output): void
+    private function createApplicationStructure(string $vendor, string $packageName, string $fullName, string $type, string $displayName, string $shortDescription, string $appId, OutputInterface $output): void
     {
         $basePath = getcwd() . '/' . $fullName;
 
@@ -96,7 +97,7 @@ class NewCommand extends Command
 
         $this->createDirectoryStructure($basePath, $output);
 
-        $this->createApplicationFiles($basePath, $vendor, $packageName, $fullName, $type, $displayName, $shortDescription, $output);
+        $this->createApplicationFiles($basePath, $vendor, $packageName, $fullName, $type, $displayName, $shortDescription, $appId, $output);
     }
 
     private function createDirectoryStructure(string $basePath, OutputInterface $output): void
@@ -110,8 +111,8 @@ class NewCommand extends Command
             'src/database',
             'src/resources',
             'src/routes',
-            'src/app/Controllers',
             'src/app/Http',
+            'src/app/Http/Controllers',
             'src/app/Modules',
             'src/app/Providers',
             'src/app/Services',
@@ -129,7 +130,7 @@ class NewCommand extends Command
         }
     }
 
-    private function createApplicationFiles(string $basePath, string $vendor, string $packageName, string $fullName, string $type, string $displayName, string $shortDescription, OutputInterface $output): void
+    private function createApplicationFiles(string $basePath, string $vendor, string $packageName, string $fullName, string $type, string $displayName, string $shortDescription, string $appId, OutputInterface $output): void
     {
         $packageNamespace = NamespaceHelper::getPackageNamespace($vendor, $packageName);
 
@@ -143,7 +144,13 @@ class NewCommand extends Command
 
         $this->createAppConfigFile($basePath, $fullName, $output);
 
+        $this->createAdminSetupFile($basePath, $packageNamespace, $output);
+
+        $this->createAdminMenuFile($basePath, $packageNamespace, $displayName, $appId, $output);
+
         $this->createApiRoutesFile($basePath, $output);
+
+        $this->createAdminRoutesFile($basePath, $output);
 
         $this->createAvelPressConfigFile($basePath, $packageNamespace, $output, $fullName);
 
@@ -259,6 +266,7 @@ class NewCommand extends Command
         $content = "<?php\n\n";
         $content .= "namespace {$packageNamespace}\\App\\Providers;\n\n";
         $content .= "use AvelPress\\Support\\ServiceProvider;\n\n";
+        $content .= "use {$packageNamespace}\\App\\Admin\\Setup;\n\n";
         $content .= "defined( 'ABSPATH' ) || exit;\n\n";
         $content .= "class AppServiceProvider extends ServiceProvider {\n";
         $content .= "\t/**\n";
@@ -271,7 +279,13 @@ class NewCommand extends Command
         $content .= "\t * Bootstrap any application services.\n";
         $content .= "\t */\n";
         $content .= "\tpublic function boot(): void {\n";
-        $content .= "\t\t//\n";
+        $content .= "\t\tadd_action( 'init', [ \$this, 'admin_setup' ] );\n";
+        $content .= "\t}\n";
+        $content .= "\t/**\n";
+        $content .= "\t * Admin setup method.\n";
+        $content .= "\t */\n";
+        $content .= "\tpublic function admin_setup(): void {\n";
+        $content .= "\t\tnew Setup();\n";
         $content .= "\t}\n";
         $content .= "}\n";
 
@@ -286,16 +300,54 @@ class NewCommand extends Command
         $content = "<?php\n\n";
         $content .= "defined( 'ABSPATH' ) || exit;\n\n";
         $content .= "return [\n";
-        $content .= "\t'name' => '" . ucfirst($fullName) . "',\n";
-        $content .= "\t'version' => '1.0.0',\n";
-        $content .= "\t'debug' => defined('WP_DEBUG') ? WP_DEBUG : false,\n";
-        $content .= "\t'providers' => [\n";
-        $content .= "\t\t// Register your service providers here\n";
-        $content .= "\t],\n";
+        $content .= "\t// Admin Classes\n";
+        $content .= "\t'admin_menu_class' => '\\Infixs\\AutomationForWhatsapp\\App\\Admin\\Menu::class',\n";
+        $content .= "\t'admin_setup_class' => '\\Infixs\\AutomationForWhatsapp\\App\\Admin\\Setup::class',\n";
         $content .= "];\n";
 
         file_put_contents($filename, $content);
         $output->writeln("Created file: src/config/app.php");
+    }
+
+
+    private function createAdminSetupFile(string $basePath, string $packageNamespace, OutputInterface $output): void
+    {
+        $filename = $basePath . '/src/app/Admin/Setup.php';
+
+        $content = "<?php\n\n";
+        $content .= "namespace {$packageNamespace}\\App\\Admin;\n\n";
+        $content .= "defined( 'ABSPATH' ) || exit;\n\n";
+        $content .= "class Setup {\n";
+        $content .= "\tpublic function __construct() {\n";
+        $content .= "\t\t// Add admin setup code here\n";
+        $content .= "\t}\n";
+        $content .= "}\n";
+
+        file_put_contents($filename, $content);
+
+        $output->writeln("Created file: src/app/Admin/Setup.php");
+    }
+
+    private function createAdminMenuFile(string $basePath, string $packageNamespace, string $displayName, string $appId, OutputInterface $output): void
+    {
+        $filename = $basePath . '/src/app/Admin/Menu.php';
+
+        $content = "<?php\n\n";
+        $content .= "namespace {$packageNamespace}\\App\\Admin;\n\n";
+        $content .= "use AvelPress\\Admin\\Menu\\MenuBuilder;\n\n";
+        $content .= "defined( 'ABSPATH' ) || exit;\n\n";
+        $content .= "class Menu extends MenuBuilder {\n";
+        $content .= "\tpublic function register() {\n";
+        $content .= "\t\t\$menu = \$this\n";
+        $content .= "\t\t\t->add( '{$appId}', __( '{$displayName}', '{$appId}' ) )\n";
+        $content .= "\t\t\t->icon( 'dashicons-lightbulb' )\n";
+        $content .= "\t\t\t->capability( 'manage_options' );\n";
+        $content .= "\t}\n";
+        $content .= "}\n";
+
+        file_put_contents($filename, $content);
+
+        $output->writeln("Created file: src/app/Admin/Menu.php");
     }
 
     private function createApiRoutesFile(string $basePath, OutputInterface $output): void
@@ -311,6 +363,22 @@ class NewCommand extends Command
 
         file_put_contents($filename, $content);
         $output->writeln("Created file: src/routes/api.php");
+    }
+
+    private function createAdminRoutesFile(string $basePath, OutputInterface $output): void
+    {
+        $filename = $basePath . '/src/routes/admin.php';
+
+        $content = "<?php\n\n";
+        $content .= "use AvelPress\\Facades\\Route;\n\n";
+        $content .= "defined('ABSPATH') || exit;\n\n";
+        $content .= "//You can access this example route with: /wp-admin/admin.php?page=my-page-id&path=/path-example\n";
+        $content .= "//Route::page('my-page-id')->guards(['edit_posts'])->group(function () {\n";
+        $content .= "//\tRoute::get('/path-example', [MyController::class, 'my-function']);\n";
+        $content .= "//});\n";
+
+        file_put_contents($filename, $content);
+        $output->writeln("Created file: src/routes/admin.php");
     }
 
     private function createAvelPressConfigFile(string $basePath, string $packageNamespace, OutputInterface $output, string $fullName): void
