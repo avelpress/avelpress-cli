@@ -2,6 +2,7 @@
 
 namespace AvelPress\Cli;
 
+use AvelPress\Cli\Commands\MigrateCommand;
 use Symfony\Component\Console\Application;
 use AvelPress\Cli\Commands\MakeMigrationCommand;
 use AvelPress\Cli\Commands\MakeModelCommand;
@@ -14,6 +15,7 @@ class Kernel {
 		$app = new Application( 'Avelpress CLI', '1.0.0' );
 
 		$app->add( new MakeMigrationCommand() );
+		$app->add( new MigrateCommand() );
 		$app->add( new MakeModelCommand() );
 		$app->add( new MakeControllerCommand() );
 		$app->add( new NewCommand() );
