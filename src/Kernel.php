@@ -9,6 +9,7 @@ use AvelPress\Cli\Commands\MakeModelCommand;
 use AvelPress\Cli\Commands\MakeControllerCommand;
 use AvelPress\Cli\Commands\NewCommand;
 use AvelPress\Cli\Commands\BuildCommand;
+use AvelPress\Cli\Commands\MigrateFreshCommand;
 
 class Kernel {
 	public function run() {
@@ -19,6 +20,7 @@ class Kernel {
 		$app->add( new MakeModelCommand() );
 		$app->add( new MakeControllerCommand() );
 		$app->add( new NewCommand() );
+		$app->add( new MigrateFreshCommand() );
 		$app->add( new BuildCommand() );
 
 		$app->run();

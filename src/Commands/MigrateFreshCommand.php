@@ -7,20 +7,20 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
-class MigrateCommand extends Command {
-	protected static $defaultName = 'migrate';
+class MigrateFreshCommand extends Command {
+	protected static $defaultName = 'migrate:fresh';
 
 	protected function configure() {
 		$this
-			->setDescription( 'Runs pending database migrations.' );
+			->setDescription( 'Drops all tables and re-runs all migrations.' );
 	}
 
 	protected function execute( InputInterface $input, OutputInterface $output ) {
-		$output->writeln( "<info>Runs migration</info>" );
+		$output->writeln( "<info>Runs fresh migration</info>" );
 
 		$appId = AppHelper::getAppId();
 
-		$cmd = "wp --allow-root eval '\AvelPress\AvelPress::app( \"migrator\", \"$appId\" )->run();'";
+		$cmd = "wp --allow-root eval '\AvelPress\AvelPress::app(  \"migrator\", \"$appId\" )->fresh();'";
 		$result = shell_exec( $cmd );
 
 		if ( $result === null ) {
@@ -32,4 +32,5 @@ class MigrateCommand extends Command {
 
 		return Command::SUCCESS;
 	}
+
 }

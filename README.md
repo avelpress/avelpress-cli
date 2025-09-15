@@ -37,10 +37,11 @@ php bin/avel <command>
 ## Available Commands
 
 - `build` — Builds a distribution package for your AvelPress project.
-    - `--ignore-platform-reqs` — Ignore platform requirements when running composer install during build.
+  - `--ignore-platform-reqs` — Ignore platform requirements when running composer install during build.
 - `make:controller` — Create a new controller.
 - `make:model` — Create a new model.
 - `make:migration` — Create a new migration.
+- `migrate` — Run pending migrations.
 - `new` — Create a new AvelPress project.
 
 See all options with:
