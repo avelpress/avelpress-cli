@@ -173,6 +173,36 @@ class BuildCommand extends Command {
 				$output->writeln( "Copied: readme.txt" );
 			}
 
+			// Copy additional files/directories specified in config
+			if ( isset( $config['build']['copy'] ) && is_array( $config['build']['copy'] ) ) {
+				foreach ( $config['build']['copy'] as $sourcePath ) {
+					$sourcePath = trim( $sourcePath, '/' );
+					
+					// Skip if empty
+					if ( empty( $sourcePath ) ) {
+						continue;
+					}
+
+					$absSourcePath = "$currentDir/$sourcePath";
+					$absDestPath = "$buildDir/$sourcePath";
+
+					if ( is_dir( $absSourcePath ) ) {
+						$this->copyDirectory( $absSourcePath, $absDestPath );
+						$output->writeln( "Copied directory: $sourcePath/" );
+					} elseif ( file_exists( $absSourcePath ) ) {
+						// Ensure destination directory exists
+						$destDir = dirname( $absDestPath );
+						if ( ! is_dir( $destDir ) ) {
+							mkdir( $destDir, 0755, true );
+						}
+						copy( $absSourcePath, $absDestPath );
+						$output->writeln( "Copied file: $sourcePath" );
+					} else {
+						$output->writeln( "<comment>Warning: Source path not found: $sourcePath</comment>" );
+					}
+				}
+			}
+
 			// Create ZIP file (only if ZIP extension is available)
 			if ( extension_loaded( 'zip' ) ) {
 				$zipFile = "$distDir/$pluginId.zip";

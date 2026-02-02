@@ -376,6 +376,7 @@ class NewCommand extends Command {
 		$content .= "\t'plugin_id' => '$fullName',\n";
 		$content .= "\t'build' => [\n";
 		$content .= "\t\t'output_dir' => 'dist',\n";
+		$content .= "\t\t'copy' => [],\n";
 		$content .= "\t\t'prefixer' => [\n";
 		$content .= "\t\t\t'enabled' => true,\n";
 		$content .= "\t\t\t'namespace_prefix' => '" . NamespaceHelper::escapeNamespace( $packageNamespace ) . "\\\\',\n";
