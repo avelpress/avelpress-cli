@@ -199,6 +199,7 @@ class NewCommand extends Command {
 
 		$content = "<?php\n";
 		$content .= "/**\n";
+		$content .= " * This plugin uses AvelPress Framework (https://avelpress.com)\n\n";
 
 		if ( $type === 'plugin' ) {
 			$pluginName = $displayName ?: "{$vendorDisplay} {$packageDisplay}";

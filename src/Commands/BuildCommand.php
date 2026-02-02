@@ -102,7 +102,7 @@ class BuildCommand extends Command {
 			$output->writeln( "Created directory: $outputDirDisplay/$pluginId/" );
 
 			// Copy and install dependencies
-			$vendorNamespaces = $this->handleDependencies( $currentDir, $buildDir, $ignorePlatformReqs, $composerCleanup, $output, $includePackages );
+			$vendorNamespaces = $this->handleDependencies( $currentDir, $buildDir, $ignorePlatformReqs, $composerCleanup, $output, $includePackages, $config );
 
 			// Copy src directory
 			if ( is_dir( "$currentDir/src" ) ) {
@@ -199,7 +199,7 @@ class BuildCommand extends Command {
 	/**
 	 * Handle dependencies installation and return vendor namespaces
 	 */
-	private function handleDependencies( string $currentDir, string $buildDir, bool $ignorePlatformReqs, bool $composerCleanup, OutputInterface $output, array $includePackages = [] ): array {
+	private function handleDependencies( string $currentDir, string $buildDir, bool $ignorePlatformReqs, bool $composerCleanup, OutputInterface $output, array $includePackages = [], array $config = [] ): array {
 		$vendorNamespaces = [];
 
 		// Copy and modify composer.json
@@ -227,6 +227,11 @@ class BuildCommand extends Command {
 			$output->writeln( "Removed repositories section from composer.json" );
 		}
 
+		if ( isset( $config['build']['avelpress_version'], $composerData['require'], $composerData['require']['avelpress/avelpress'] ) ) {
+			$composerData['require']['avelpress/avelpress'] = $config['build']['avelpress_version'];
+			$output->writeln( "Updated avelpress/avelpress version in composer.json" );
+		}
+
 		// If repositories section exists, set options['symlink'] = false for each repository
 		if ( isset( $composerData['repositories'] ) && is_array( $composerData['repositories'] ) ) {
 			foreach ( $composerData['repositories'] as &$repo ) {
@@ -249,7 +254,7 @@ class BuildCommand extends Command {
 		// Run composer install in build directory
 		$output->writeln( "<info>Running composer install in build directory...</info>" );
 		$composerInstallCmd = "composer install --no-dev --optimize-autoloader";
-		if ( $ignorePlatformReqs ) {
+		if ( $ignorePlatformReqs || ( isset( $config['build']['ignore_platform_reqs'] ) && $config['build']['ignore_platform_reqs'] === true ) ) {
 			$composerInstallCmd .= " --ignore-platform-reqs";
 		}
 		$composerCommand = "cd " . escapeshellarg( $buildDir ) . " && $composerInstallCmd 2>&1";
@@ -287,7 +292,38 @@ class BuildCommand extends Command {
 			$output->writeln( "Removed composer.lock from build directory." );
 		}
 
+		$this->cleanDevFiles( $buildDir, $output );
+
 		return $vendorNamespaces;
+	}
+
+	public function cleanDevFiles( string $buildDir, OutputInterface $output ): void {
+		$avelPressPath = "$buildDir/vendor/avelpress/avelpress";
+
+		if ( ! is_dir( $avelPressPath ) ) {
+			return;
+		}
+
+		// Remove .vscode directory
+		$vscodePath = "$avelPressPath/.vscode";
+		if ( is_dir( $vscodePath ) ) {
+			$this->removeDirectory( $vscodePath );
+			$output->writeln( "Removed: vendor/avelpress/avelpress/.vscode/" );
+		}
+
+		// Remove composer.lock
+		$composerLockPath = "$avelPressPath/composer.lock";
+		if ( file_exists( $composerLockPath ) ) {
+			unlink( $composerLockPath );
+			$output->writeln( "Removed: vendor/avelpress/avelpress/composer.lock" );
+		}
+
+		// Remove .gitignore
+		$gitignorePath = "$avelPressPath/.gitignore";
+		if ( file_exists( $gitignorePath ) ) {
+			unlink( $gitignorePath );
+			$output->writeln( "Removed: vendor/avelpress/avelpress/.gitignore" );
+		}
 	}
 
 	/**
