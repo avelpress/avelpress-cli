@@ -172,7 +172,7 @@ class NewCommand extends Command {
 				]
 			],
 			'require' => [
-				'avelpress/avelpress' => '^1.0'
+				'avelpress/avelpress' => '^1.1'
 			],
 			'require-dev' => [
 				'php-stubs/wordpress-stubs' => '^6.8',
