@@ -107,6 +107,7 @@ class NewCommand extends Command {
 			'src/database',
 			'src/resources',
 			'src/routes',
+			'src/app/Admin',
 			'src/app/Http',
 			'src/app/Http/Controllers',
 			'src/app/Modules',
@@ -137,7 +138,7 @@ class NewCommand extends Command {
 
 		$this->createAppServiceProvider( $basePath, $packageNamespace, $output );
 
-		$this->createAppConfigFile( $basePath, $fullName, $output );
+		$this->createAppConfigFile( $basePath, $packageNamespace, $output );
 
 		$this->createAdminSetupFile( $basePath, $packageNamespace, $output );
 
@@ -285,15 +286,15 @@ class NewCommand extends Command {
 		$output->writeln( "Created file: src/app/Providers/AppServiceProvider.php" );
 	}
 
-	private function createAppConfigFile( string $basePath, string $fullName, OutputInterface $output ): void {
+	private function createAppConfigFile( string $basePath, string $packageNamespace, OutputInterface $output ): void {
 		$filename = $basePath . '/src/config/app.php';
 
 		$content = "<?php\n\n";
 		$content .= "defined( 'ABSPATH' ) || exit;\n\n";
 		$content .= "return [\n";
 		$content .= "\t// Admin Classes\n";
-		$content .= "\t'admin_menu_class' => '\\Infixs\\AutomationForWhatsapp\\App\\Admin\\Menu::class',\n";
-		$content .= "\t'admin_setup_class' => '\\Infixs\\AutomationForWhatsapp\\App\\Admin\\Setup::class',\n";
+		$content .= "\t'admin_menu_class' => '\\{$packageNamespace}\\App\\Admin\\Menu::class',\n";
+		$content .= "\t'admin_setup_class' => '\\{$packageNamespace}\\App\\Admin\\Setup::class',\n";
 		$content .= "];\n";
 
 		file_put_contents( $filename, $content );
