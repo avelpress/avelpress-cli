@@ -66,7 +66,7 @@ class NewCommand extends Command {
 			$shortDescription = $helper->ask( $input, $output, $shortDescQuestion );
 		}
 
-		$output->writeln( "<info>Creating new Avelpress {$type}: {$fullName}</info>" );
+		$output->writeln( "<info>Creating new AvelPress {$type}: {$fullName}</info>" );
 
 		try {
 			$this->createApplicationStructure( $vendor, $packageName, $fullName, $type, $displayName, $shortDescription, $appId, $output );
@@ -223,7 +223,7 @@ class NewCommand extends Command {
 			$content .= " */\n\n";
 		}
 
-		$content .= "use AvelPress\\Avelpress;\n\n";
+		$content .= "use AvelPress\\AvelPress;\n\n";
 		$content .= "defined( 'ABSPATH' ) || exit;\n\n";
 
 		$nameWithUnderscore = str_replace( '-', '_', $fullName );
@@ -232,7 +232,7 @@ class NewCommand extends Command {
 		$content .= "define( '{$constantName}', plugin_dir_path( __FILE__ ) );\n\n";
 		$content .= "require {$constantName} . 'vendor/autoload.php';\n\n";
 
-		$content .= "Avelpress::init( '{$fullName}', [\n";
+		$content .= "AvelPress::init( '{$fullName}', [\n";
 		$content .= "\t'base_path' => {$constantName} . 'src',\n";
 		$content .= "] );\n";
 
