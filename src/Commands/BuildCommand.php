@@ -81,9 +81,12 @@ class BuildCommand extends Command {
 			$output->writeln( "<info>Namespace prefixing disabled</info>" );
 		}
 
-		// Check if ZIP extension is available
-		if ( ! extension_loaded( 'zip' ) ) {
-			$output->writeln( "<comment>ZIP extension for PHP (php-zip) is not available. ZIP file creation will be skipped.</comment>" );
+		// Check if ZIP extension or command is available
+		$hasZipExtension = extension_loaded( 'zip' );
+		$hasZipCommand = ! $hasZipExtension && $this->commandExists( 'zip' );
+
+		if ( ! $hasZipExtension && ! $hasZipCommand ) {
+			$output->writeln( "<comment>ZIP extension for PHP (php-zip) and 'zip' command are not available. ZIP file creation will be skipped.</comment>" );
 		}
 
 		try {
@@ -203,20 +206,32 @@ class BuildCommand extends Command {
 				}
 			}
 
-			// Create ZIP file (only if ZIP extension is available)
-			if ( extension_loaded( 'zip' ) ) {
-				$zipFile = "$distDir/$pluginId.zip";
-				$this->createZipArchive( $buildDir, $zipFile, $pluginId );
-				$output->writeln( "Created: $pluginId.zip" );
+			// Create ZIP file (only if ZIP extension or command is available)
+			if ( $hasZipExtension || $hasZipCommand ) {
+				$version = '';
+				if ( file_exists( $mainPhpFile ) ) {
+					$content = file_get_contents( $mainPhpFile );
+					if ( preg_match( '/\*\s*Version:\s*(.+)/i', $content, $matches ) ) {
+						$version = '-' . trim( $matches[1] );
+					}
+				}
+
+				$zipFile = "$distDir/$pluginId$version.zip";
+				if ( $hasZipExtension ) {
+					$this->createZipArchive( $buildDir, $zipFile, $pluginId );
+				} else {
+					$this->createZipArchiveWithShell( $buildDir, $zipFile );
+				}
+				$output->writeln( "Created: $pluginId$version.zip" );
 			}
 
 			$output->writeln( "<info>Build completed successfully!</info>" );
 			$output->writeln( "<comment>Distribution files created in: $outputDirDisplay/</comment>" );
 			$output->writeln( "<comment>- Folder: $outputDirDisplay/$pluginId/</comment>" );
-			if ( extension_loaded( 'zip' ) ) {
+			if ( $hasZipExtension || $hasZipCommand ) {
 				$output->writeln( "<comment>- ZIP: $outputDirDisplay/$pluginId.zip</comment>" );
 			} else {
-				$output->writeln( "<comment>- ZIP: Skipped (ZIP extension not available)</comment>" );
+				$output->writeln( "<comment>- ZIP: Skipped (ZIP extension and command not available)</comment>" );
 			}
 
 			return Command::SUCCESS;
@@ -800,5 +815,36 @@ class BuildCommand extends Command {
 		}
 
 		$zip->close();
+	}
+
+	/**
+	 * Check if a shell command exists
+	 */
+	private function commandExists( string $command ): bool {
+		$whereIsCommand = ( PHP_OS === 'WINNT' ) ? 'where' : 'which';
+		return (bool) shell_exec( "$whereIsCommand $command" );
+	}
+
+	/**
+	 * Create a ZIP archive using shell command
+	 */
+	private function createZipArchiveWithShell( string $sourceDir, string $zipFile ): void {
+		$baseDir = dirname( $sourceDir );
+		$dirName = basename( $sourceDir );
+		
+		// Ensure zip file path is absolute or handled correctly from the directory we cd into
+		if ( strpos( $zipFile, '/' ) !== 0 && ! preg_match( '/^[A-Za-z]:[\\/]/', $zipFile ) ) {
+			$zipFile = getcwd() . DIRECTORY_SEPARATOR . $zipFile;
+		}
+
+		$command = "cd " . escapeshellarg( $baseDir ) . " && zip -r " . escapeshellarg( $zipFile ) . " " . escapeshellarg( $dirName );
+		
+		$output = [];
+		$returnVar = 0;
+		exec( $command, $output, $returnVar );
+
+		if ( $returnVar !== 0 ) {
+			throw new \Exception( "Failed to create ZIP file using 'zip' command." );
+		}
 	}
 }
