@@ -145,6 +145,12 @@ class BuildCommand extends Command {
 				$output->writeln( "Copied: assets/" );
 			}
 
+			// Copy languages directory if exists
+			if ( is_dir( "$currentDir/languages" ) ) {
+				$this->copyDirectory( "$currentDir/languages", "$buildDir/languages" );
+				$output->writeln( "Copied: languages/" );
+			}
+
 			// Copy main PHP file
 			$mainPhpFile = "$currentDir/$pluginId.php";
 			if ( file_exists( $mainPhpFile ) ) {
@@ -180,7 +186,7 @@ class BuildCommand extends Command {
 			if ( isset( $config['build']['copy'] ) && is_array( $config['build']['copy'] ) ) {
 				foreach ( $config['build']['copy'] as $sourcePath ) {
 					$sourcePath = trim( $sourcePath, '/' );
-					
+
 					// Skip if empty
 					if ( empty( $sourcePath ) ) {
 						continue;
@@ -831,14 +837,14 @@ class BuildCommand extends Command {
 	private function createZipArchiveWithShell( string $sourceDir, string $zipFile ): void {
 		$baseDir = dirname( $sourceDir );
 		$dirName = basename( $sourceDir );
-		
+
 		// Ensure zip file path is absolute or handled correctly from the directory we cd into
 		if ( strpos( $zipFile, '/' ) !== 0 && ! preg_match( '/^[A-Za-z]:[\\/]/', $zipFile ) ) {
 			$zipFile = getcwd() . DIRECTORY_SEPARATOR . $zipFile;
 		}
 
 		$command = "cd " . escapeshellarg( $baseDir ) . " && zip -r " . escapeshellarg( $zipFile ) . " " . escapeshellarg( $dirName );
-		
+
 		$output = [];
 		$returnVar = 0;
 		exec( $command, $output, $returnVar );
