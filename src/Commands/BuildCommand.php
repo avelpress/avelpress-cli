@@ -108,8 +108,15 @@ class BuildCommand extends Command {
 			// Copy and install dependencies
 			$vendorNamespaces = $this->handleDependencies( $currentDir, $buildDir, $ignorePlatformReqs, $composerCleanup, $output, $includePackages, $config );
 
-			// Copy src directory
-			if ( is_dir( "$currentDir/src" ) ) {
+			// Copy src directory.
+			//
+			// Not every plugin keeps PHP in src/: a plugin built with wp-scripts
+			// keeps its JavaScript sources there and ships only the compiled
+			// output, so copying it would leak the sources and inflate the
+			// package. Opt out with build.include_src = false.
+			$includeSrc = ! isset( $config['build']['include_src'] ) || $config['build']['include_src'] !== false;
+
+			if ( $includeSrc && is_dir( "$currentDir/src" ) ) {
 				if ( $shouldPrefixNamespaces ) {
 					$this->copyDirectoryWithNamespaceReplacement(
 						"$currentDir/src",
