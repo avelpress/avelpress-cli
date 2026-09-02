@@ -4,6 +4,7 @@ namespace AvelPress\Cli\Release;
 
 use AvelPress\Cli\Helpers\AppHelper;
 use AvelPress\Cli\Release\Support\DownloadMatcher;
+use AvelPress\Cli\Release\Support\Env;
 
 /**
  * Everything the release needs to know about the project it is publishing.
@@ -167,6 +168,26 @@ class ReleaseContext {
 		}
 
 		return $files;
+	}
+
+	/**
+	 * Endpoint that receives the update manifest, when there is one.
+	 *
+	 * Configured per project because different plugins publish to different
+	 * places — one store may serve its own updates while another answers from a
+	 * separate API. The environment variable stays as the default for a setup
+	 * with a single destination.
+	 *
+	 * @return string|null
+	 */
+	public function manifestWebhook() {
+		$webhook = $this->release( 'manifest.webhook' );
+
+		if ( $webhook ) {
+			return str_replace( '{slug}', $this->pluginId(), $webhook );
+		}
+
+		return Env::get( 'AVELPRESS_RELEASE_WEBHOOK' );
 	}
 
 	/**

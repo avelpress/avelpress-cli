@@ -50,13 +50,10 @@ class ReleaseCommand extends Command {
 
 			$targets = [ new WooCommerceTarget( $store, $inventory, $context->matcher() ) ];
 
-			if ( Env::has( [ 'AVELPRESS_RELEASE_WEBHOOK', 'AVELPRESS_RELEASE_TOKEN' ] ) ) {
-				$targets[] = new WebhookTarget(
-					new HttpClient(),
-					Env::mustGet( 'AVELPRESS_RELEASE_WEBHOOK' ),
-					Env::mustGet( 'AVELPRESS_RELEASE_TOKEN' ),
-					$context
-				);
+			$webhook = $context->manifestWebhook();
+
+			if ( $webhook ) {
+				$targets[] = new WebhookTarget( new HttpClient(), $webhook, $this->manifestAuth(), $context );
 			}
 
 			$service = new ReleaseService(
@@ -88,6 +85,29 @@ class ReleaseCommand extends Command {
 
 			return Command::FAILURE;
 		}
+	}
+
+	/**
+	 * Authorization the manifest endpoint expects.
+	 *
+	 * A bearer token when one is configured — an endpoint outside WordPress has
+	 * no user to authenticate. Otherwise the same application password already
+	 * used to upload the package: when the manifest lives on the store itself,
+	 * inventing a second credential buys nothing and adds one more secret to
+	 * rotate.
+	 *
+	 * @return string
+	 */
+	private function manifestAuth(): string {
+		$token = Env::get( 'AVELPRESS_RELEASE_TOKEN' );
+
+		if ( $token ) {
+			return 'Bearer ' . $token;
+		}
+
+		return 'Basic ' . base64_encode(
+			Env::mustGet( 'AVELPRESS_WP_USER' ) . ':' . Env::mustGet( 'AVELPRESS_WP_APP_PASSWORD' )
+		);
 	}
 
 	/**

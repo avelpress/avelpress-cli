@@ -35,11 +35,11 @@ class WebhookTarget implements ReleaseTarget {
 	private $url;
 
 	/**
-	 * Bearer token for the endpoint.
+	 * Value sent in the Authorization header.
 	 *
 	 * @var string
 	 */
-	private $token;
+	private $authorization;
 
 	/**
 	 * Project being released.
@@ -49,15 +49,18 @@ class WebhookTarget implements ReleaseTarget {
 	private $context;
 
 	/**
-	 * @param HttpClient     $http    Transport.
-	 * @param string         $url     Endpoint that receives the manifest.
-	 * @param string         $token   Bearer token.
-	 * @param ReleaseContext $context Project being released.
+	 * @param HttpClient     $http          Transport.
+	 * @param string         $url           Endpoint that receives the manifest.
+	 * @param string         $authorization Authorization header value. A store
+	 *                                      running on WordPress authenticates the
+	 *                                      same way the upload does, so no second
+	 *                                      credential has to exist for it.
+	 * @param ReleaseContext $context       Project being released.
 	 */
-	public function __construct( HttpClient $http, string $url, string $token, ReleaseContext $context ) {
+	public function __construct( HttpClient $http, string $url, string $authorization, ReleaseContext $context ) {
 		$this->http = $http;
 		$this->url = $url;
-		$this->token = $token;
+		$this->authorization = $authorization;
 		$this->context = $context;
 	}
 
@@ -131,7 +134,7 @@ class WebhookTarget implements ReleaseTarget {
 				[
 					'Content-Type: application/json',
 					'Accept: application/json',
-					'Authorization: Bearer ' . $this->token,
+					'Authorization: ' . $this->authorization,
 				]
 			);
 
