@@ -105,6 +105,10 @@ class VersionManager {
 		$patterns = [
 			'/(\*\s*Version:\s*)' . $quoted . '(\s*$)/mi',
 			'/(^Stable tag:\s*)' . $quoted . '(\s*$)/mi',
+			// Um readme que anuncia a versão numa linha "Version:" própria, sem o
+			// asterisco do cabeçalho de plugin. Ancorado no início da linha, então
+			// não colide com o header dentro de um comentário PHP.
+			'/(^Version:\s*)' . $quoted . '(\s*$)/mi',
 			'/(define\(\s*[\'"][A-Z0-9_]*VERSION[\'"]\s*,\s*[\'"])' . $quoted . '([\'"])/',
 		];
 
