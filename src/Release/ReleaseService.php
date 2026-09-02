@@ -342,7 +342,10 @@ class ReleaseService {
 			foreach ( $plan as $item ) {
 				$output->writeln( '  ' . $item['label'] );
 
-				foreach ( $item['changes'] as $change ) {
+				// Only the store plan describes individual download entries.
+				$changes = isset( $item['changes'] ) ? $item['changes'] : [];
+
+				foreach ( $changes as $change ) {
 					$output->writeln( '    ' . substr( $change['download_id'], 0, 8 ) . '  '
 						. basename( (string) parse_url( $change['from'], PHP_URL_PATH ) ) . '  ->  ' . $version );
 				}
