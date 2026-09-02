@@ -10,6 +10,9 @@ use AvelPress\Cli\Commands\MakeControllerCommand;
 use AvelPress\Cli\Commands\NewCommand;
 use AvelPress\Cli\Commands\BuildCommand;
 use AvelPress\Cli\Commands\MigrateFreshCommand;
+use AvelPress\Cli\Commands\ReleaseCommand;
+use AvelPress\Cli\Commands\ReleaseDoctorCommand;
+use AvelPress\Cli\Commands\ReleaseRestoreCommand;
 
 class Kernel {
 	public function run() {
@@ -22,6 +25,9 @@ class Kernel {
 		$app->add( new NewCommand() );
 		$app->add( new MigrateFreshCommand() );
 		$app->add( new BuildCommand() );
+		$app->add( new ReleaseCommand() );
+		$app->add( new ReleaseDoctorCommand() );
+		$app->add( new ReleaseRestoreCommand() );
 
 		$app->run();
 	}

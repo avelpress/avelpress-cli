@@ -2,6 +2,7 @@
 
 namespace AvelPress\Cli\Commands;
 
+use AvelPress\Cli\Release\VersionManager;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -214,13 +215,8 @@ class BuildCommand extends Command {
 
 			// Create ZIP file (only if ZIP extension or command is available)
 			if ( $hasZipExtension || $hasZipCommand ) {
-				$version = '';
-				if ( file_exists( $mainPhpFile ) ) {
-					$content = file_get_contents( $mainPhpFile );
-					if ( preg_match( '/\*\s*Version:\s*(.+)/i', $content, $matches ) ) {
-						$version = '-' . trim( $matches[1] );
-					}
-				}
+				$pluginVersion = VersionManager::readVersion( $mainPhpFile );
+				$version = $pluginVersion === null ? '' : '-' . $pluginVersion;
 
 				$zipFile = "$distDir/$pluginId$version.zip";
 				if ( $hasZipExtension ) {
