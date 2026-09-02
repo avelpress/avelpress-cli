@@ -191,6 +191,20 @@ class ReleaseContext {
 	}
 
 	/**
+	 * Whether this plugin's updates are served without a licence.
+	 *
+	 * A free plugin has no licence to present, so the endpoint has to be told
+	 * that refusing anonymous callers would refuse everyone. Declared by the
+	 * project rather than inferred from the store price, because it decides who
+	 * may download the package.
+	 *
+	 * @return bool
+	 */
+	public function manifestIsPublic(): bool {
+		return (bool) $this->release( 'manifest.public' );
+	}
+
+	/**
 	 * URL that serves the published update manifest, when there is one.
 	 *
 	 * Lets the audit compare what the plugin declares today against what the

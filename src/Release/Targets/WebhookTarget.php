@@ -111,6 +111,10 @@ class WebhookTarget implements ReleaseTarget {
 			$manifest['requiresPlugins'] = $header['requires_plugins'];
 		}
 
+		if ( $this->context->manifestIsPublic() ) {
+			$manifest['public'] = true;
+		}
+
 		return [
 			[
 				'label' => 'update manifest for ' . $this->context->pluginId(),
