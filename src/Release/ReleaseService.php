@@ -311,12 +311,20 @@ class ReleaseService {
 			return;
 		}
 
-		Git::commit( $this->context->projectDir(), $files, 'Release ' . $version );
-		$output->writeln( '<info>Committed</info> release ' . $version );
+		// Já publicado a esta altura. Falhar aqui — git sem identidade, por
+		// exemplo — não desfaz nada e não deve virar erro: reportar fracasso num
+		// release que saiu manda a pessoa investigar a coisa errada.
+		try {
+			Git::commit( $this->context->projectDir(), $files, 'Release ' . $version );
+			$output->writeln( '<info>Committed</info> release ' . $version );
 
-		if ( $this->context->shouldTag() && ! Git::hasTag( $this->context->projectDir(), 'v' . $version ) ) {
-			Git::tag( $this->context->projectDir(), 'v' . $version );
-			$output->writeln( '<info>Tagged</info> v' . $version );
+			if ( $this->context->shouldTag() && ! Git::hasTag( $this->context->projectDir(), 'v' . $version ) ) {
+				Git::tag( $this->context->projectDir(), 'v' . $version );
+				$output->writeln( '<info>Tagged</info> v' . $version );
+			}
+		} catch (\RuntimeException $e) {
+			$output->writeln( '<comment>Released, but the bump was not committed: ' . $e->getMessage()
+				. ' Commit it by hand.</comment>' );
 		}
 	}
 
