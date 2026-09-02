@@ -91,18 +91,27 @@ class WebhookTarget implements ReleaseTarget {
 		$readme = $this->context->projectDir() . DIRECTORY_SEPARATOR . 'readme.txt';
 		$header = PluginHeader::read( $this->context->mainFile(), $readme );
 
+		$manifest = [
+			'pluginId' => $this->context->pluginId(),
+			'version' => $version,
+			'package' => $artifact->url(),
+			'requires' => $header['requires'],
+			'requiresPHP' => $header['requires_php'],
+			'tested' => $header['tested'],
+			'changelog' => PluginHeader::changelogFor( $readme, $version ),
+		];
+
+		// Sent only when declared: a plugin with no dependency must not have the
+		// field written at all, and an empty map would read as "no requirement"
+		// and quietly drop a gate that was protecting installs.
+		if ( $header['requires_plugins'] ) {
+			$manifest['requiresPlugins'] = $header['requires_plugins'];
+		}
+
 		return [
 			[
 				'label' => 'update manifest for ' . $this->context->pluginId(),
-				'manifest' => [
-					'pluginId' => $this->context->pluginId(),
-					'version' => $version,
-					'package' => $artifact->url(),
-					'requires' => $header['requires'],
-					'requiresPHP' => $header['requires_php'],
-					'tested' => $header['tested'],
-					'changelog' => PluginHeader::changelogFor( $readme, $version ),
-				],
+				'manifest' => $manifest,
 			],
 		];
 	}

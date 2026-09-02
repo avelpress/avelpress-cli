@@ -170,6 +170,25 @@ class ReleaseContext {
 	}
 
 	/**
+	 * URL that serves the published update manifest, when there is one.
+	 *
+	 * Lets the audit compare what the plugin declares today against what the
+	 * manifest is actually enforcing — the two drift whenever a release is
+	 * pending or a requirement was raised in the code but never published.
+	 *
+	 * @return string|null
+	 */
+	public function manifestUrl() {
+		$url = $this->release( 'manifest.check_url' );
+
+		if ( ! $url ) {
+			return null;
+		}
+
+		return str_replace( '{slug}', $this->pluginId(), $url );
+	}
+
+	/**
 	 * How many published packages to keep when pruning.
 	 *
 	 * @return int

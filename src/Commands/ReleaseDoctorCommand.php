@@ -2,11 +2,13 @@
 
 namespace AvelPress\Cli\Commands;
 
-use AvelPress\Cli\Helpers\AppHelper;
+use AvelPress\Cli\Release\Http\HttpClient;
 use AvelPress\Cli\Release\Http\WpRestClient;
+use AvelPress\Cli\Release\ReleaseContext;
 use AvelPress\Cli\Release\Store\SiteInventory;
 use AvelPress\Cli\Release\Support\DownloadMatcher;
 use AvelPress\Cli\Release\Support\Env;
+use AvelPress\Cli\Release\Support\PluginHeader;
 use AvelPress\Cli\Release\VersionManager;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\Table;
@@ -94,27 +96,17 @@ class ReleaseDoctorCommand extends Command {
 	 */
 	private function auditPlugin( array $entries, string $projectDir, OutputInterface $output ): int {
 		try {
-			$config = AppHelper::getConfig();
+			$context = ReleaseContext::fromProject( $projectDir );
 		} catch (\RuntimeException $e) {
-			$output->writeln( '<error>avelpress.config.php not found. Run this from a plugin project, or use --site-wide.</error>' );
+			$output->writeln( "<error>{$e->getMessage()} Run this from a plugin project, or use --site-wide.</error>" );
 
 			return Command::FAILURE;
 		}
 
-		$pluginId = isset( $config['plugin_id'] ) ? $config['plugin_id'] : null;
-
-		if ( ! $pluginId ) {
-			$output->writeln( '<error>plugin_id is not set in avelpress.config.php.</error>' );
-
-			return Command::FAILURE;
-		}
-
-		$store = isset( $config['release']['store'] ) ? $config['release']['store'] : [];
-		$slugs = isset( $store['match'] ) && $store['match'] ? $store['match'] : [ $pluginId ];
-		$excludes = isset( $store['exclude'] ) ? $store['exclude'] : [];
-		$matcher = new DownloadMatcher( $slugs, $excludes );
-
-		$localVersion = VersionManager::readVersion( VersionManager::mainFile( $projectDir, $pluginId ) );
+		$pluginId = $context->pluginId();
+		$slugs = $context->slugs();
+		$matcher = $context->matcher();
+		$localVersion = $context->version();
 
 		$output->writeln( "<info>Plugin:</info> $pluginId " . ( $localVersion ? $localVersion : '(no version in header)' ) );
 		$output->writeln( '<info>File names claimed:</info> ' . implode( ', ', $slugs ) );
@@ -153,7 +145,125 @@ class ReleaseDoctorCommand extends Command {
 		$table->render();
 		$output->writeln( '' );
 
-		return $this->report( $this->pluginFindings( $matched, $localVersion ), $output );
+		$findings = array_merge(
+			$this->pluginFindings( $matched, $localVersion ),
+			$this->manifestFindings( $context, $localVersion, $output )
+		);
+
+		return $this->report( $findings, $output );
+	}
+
+	/**
+	 * Compares the published update manifest with what the plugin declares.
+	 *
+	 * The manifest gates who is offered the update — which version is current and
+	 * which minimum version of a dependency is required. Both live in the plugin
+	 * source now, but the manifest only catches up when a release publishes it,
+	 * so a difference here means installed copies are being told something the
+	 * code no longer says.
+	 *
+	 * @param ReleaseContext  $context      Project being audited.
+	 * @param string|null     $localVersion Version in the plugin header.
+	 * @param OutputInterface $output       Console output.
+	 * @return string[]
+	 */
+	private function manifestFindings( ReleaseContext $context, $localVersion, OutputInterface $output ): array {
+		$url = $context->manifestUrl();
+
+		if ( ! $url ) {
+			return [];
+		}
+
+		try {
+			$response = ( new HttpClient() )->request( 'GET', $url, null, [ 'Accept: application/json' ], 20 );
+			$manifest = json_decode( $response['body'], true );
+		} catch (\RuntimeException $e) {
+			$output->writeln( "<comment>Could not read the update manifest: {$e->getMessage()}</comment>" );
+
+			return [];
+		}
+
+		if ( ! is_array( $manifest ) || empty( $manifest['new_version'] ) ) {
+			$output->writeln( '<comment>The update manifest did not answer with a version.</comment>' );
+
+			return [];
+		}
+
+		$output->writeln( '<info>Update manifest:</info> version ' . $manifest['new_version']
+			. $this->describeRequirements( isset( $manifest['requires_plugins'] ) ? $manifest['requires_plugins'] : [] ) );
+
+		$declared = PluginHeader::read( $context->mainFile() )['requires_plugins'];
+		$published = isset( $manifest['requires_plugins'] ) && is_array( $manifest['requires_plugins'] )
+			? $manifest['requires_plugins']
+			: [];
+
+		$findings = [];
+
+		if ( $localVersion !== null && VersionManager::compare( (string) $manifest['new_version'], $localVersion ) < 0 ) {
+			$findings[] = 'The update manifest still offers ' . $manifest['new_version']
+				. ', older than the local ' . $localVersion . '. Installed copies are not being offered this version yet.';
+		}
+
+		// An endpoint that does not report requirements at all may still be
+		// enforcing them; claiming otherwise would be a false alarm.
+		if ( ! array_key_exists( 'requires_plugins', $manifest ) ) {
+			if ( $declared ) {
+				$output->writeln( '<comment>This manifest endpoint does not report plugin requirements, so the declared ones could not be checked.</comment>' );
+			}
+
+			$output->writeln( '' );
+
+			return $findings;
+		}
+
+		foreach ( $declared as $slug => $version ) {
+			$current = isset( $published[ $slug ] ) ? $published[ $slug ] : null;
+
+			if ( $current === $version ) {
+				continue;
+			}
+
+			$findings[] = sprintf(
+				'The plugin declares it needs %s >= %s, but the manifest enforces %s. Publish a release to sync it.',
+				$slug,
+				$version,
+				$current === null ? 'nothing' : $current
+			);
+		}
+
+		foreach ( $published as $slug => $version ) {
+			if ( ! isset( $declared[ $slug ] ) ) {
+				$findings[] = sprintf(
+					'The manifest requires %s >= %s but the plugin no longer declares it. Add it back to "Requires Plugins Versions" or it will look unintentional.',
+					$slug,
+					$version
+				);
+			}
+		}
+
+		$output->writeln( '' );
+
+		return $findings;
+	}
+
+	/**
+	 * Formats the dependency requirements for the report line.
+	 *
+	 * @param mixed $requirements Requirements read from the manifest.
+	 * @return string
+	 */
+	private function describeRequirements( $requirements ): string {
+		if ( ! is_array( $requirements ) || ! $requirements ) {
+			return '';
+		}
+
+		$parts = [];
+
+		foreach ( $requirements as $slug => $version ) {
+			$parts[] = "$slug >= $version";
+		}
+
+		return ', requires ' . implode( ', ', $parts );
 	}
 
 	/**

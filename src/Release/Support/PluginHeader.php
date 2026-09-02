@@ -17,7 +17,7 @@ class PluginHeader {
 	 *
 	 * @param string      $mainFile Main plugin file.
 	 * @param string|null $readme   readme.txt, when the plugin has one.
-	 * @return array{name: string, requires: string, requires_php: string, tested: string}
+	 * @return array{name: string, requires: string, requires_php: string, tested: string, requires_plugins: array}
 	 */
 	public static function read( string $mainFile, $readme = null ): array {
 		$plugin = file_exists( $mainFile ) ? (string) file_get_contents( $mainFile ) : '';
@@ -28,7 +28,49 @@ class PluginHeader {
 			'requires' => self::field( $plugin, 'Requires at least' ),
 			'requires_php' => self::field( $plugin, 'Requires PHP' ),
 			'tested' => self::field( $readmeContent, 'Tested up to' ),
+			'requires_plugins' => self::requiredPlugins( $plugin ),
 		];
+	}
+
+	/**
+	 * Minimum version of other plugins this version depends on.
+	 *
+	 * WordPress has a "Requires Plugins" header but it carries no version, and a
+	 * PRO release often needs a feature added to the free plugin. Declaring it
+	 * here — next to the version, in the same file — means the requirement is
+	 * raised in the same commit that writes the code needing it, instead of in a
+	 * remote record somebody has to remember afterwards.
+	 *
+	 * Format: `Requires Plugins Versions: plugin-slug:1.9.0, other-slug:2.0`.
+	 *
+	 * @param string $content Main plugin file contents.
+	 * @return array<string, string> Slug to minimum version.
+	 */
+	private static function requiredPlugins( string $content ): array {
+		$declared = self::field( $content, 'Requires Plugins Versions' );
+
+		if ( $declared === '' ) {
+			return [];
+		}
+
+		$required = [];
+
+		foreach ( explode( ',', $declared ) as $pair ) {
+			$parts = explode( ':', trim( $pair ), 2 );
+
+			if ( count( $parts ) !== 2 ) {
+				continue;
+			}
+
+			$slug = trim( $parts[0] );
+			$version = trim( $parts[1] );
+
+			if ( $slug !== '' && $version !== '' ) {
+				$required[ $slug ] = $version;
+			}
+		}
+
+		return $required;
 	}
 
 	/**
