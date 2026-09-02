@@ -53,7 +53,7 @@ class ReleaseCommand extends Command {
 			$webhook = $context->manifestWebhook();
 
 			if ( $webhook ) {
-				$targets[] = new WebhookTarget( new HttpClient(), $webhook, $this->manifestAuth(), $context );
+				$targets[] = new WebhookTarget( new HttpClient(), $webhook, $this->manifestAuth( $site, $webhook ), $context );
 			}
 
 			$service = new ReleaseService(
@@ -90,24 +90,35 @@ class ReleaseCommand extends Command {
 	/**
 	 * Authorization the manifest endpoint expects.
 	 *
-	 * A bearer token when one is configured — an endpoint outside WordPress has
-	 * no user to authenticate. Otherwise the same application password already
-	 * used to upload the package: when the manifest lives on the store itself,
-	 * inventing a second credential buys nothing and adds one more secret to
-	 * rotate.
+	 * When the manifest lives on the store itself, the application password
+	 * already used to upload the package covers it too — inventing a second
+	 * credential buys nothing. A bearer token is for an endpoint on another host,
+	 * which has no WordPress user to authenticate.
 	 *
+	 * @param string $site    Store URL.
+	 * @param string $webhook Manifest endpoint.
 	 * @return string
+	 * @throws \RuntimeException When an external endpoint has no token.
 	 */
-	private function manifestAuth(): string {
-		$token = Env::get( 'AVELPRESS_RELEASE_TOKEN' );
-
-		if ( $token ) {
-			return 'Bearer ' . $token;
+	private function manifestAuth( string $site, string $webhook ): string {
+		// A escolha é pelo destino, não por configuração global: um token existe
+		// para um endpoint específico, e mandá-lo para a própria loja só resulta
+		// em 401 — foi o que aconteceu na primeira tentativa de publicar aqui.
+		if ( parse_url( $webhook, PHP_URL_HOST ) === parse_url( $site, PHP_URL_HOST ) ) {
+			return 'Basic ' . base64_encode(
+				Env::mustGet( 'AVELPRESS_WP_USER' ) . ':' . Env::mustGet( 'AVELPRESS_WP_APP_PASSWORD' )
+			);
 		}
 
-		return 'Basic ' . base64_encode(
-			Env::mustGet( 'AVELPRESS_WP_USER' ) . ':' . Env::mustGet( 'AVELPRESS_WP_APP_PASSWORD' )
-		);
+		$token = Env::get( 'AVELPRESS_RELEASE_TOKEN' );
+
+		if ( ! $token ) {
+			throw new \RuntimeException(
+				'The manifest endpoint is on another host, which needs AVELPRESS_RELEASE_TOKEN.'
+			);
+		}
+
+		return 'Bearer ' . $token;
 	}
 
 	/**
