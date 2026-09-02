@@ -31,14 +31,15 @@ class WordPressMediaStorage implements ArtifactStorage {
 	}
 
 	/**
-	 * Uploads the package and returns its public URL.
+	 * Uploads the package and returns its URL.
 	 *
-	 * @param string $file Absolute path of the ZIP.
+	 * @param string $file       Absolute path of the ZIP.
+	 * @param string $visibility One of the VISIBILITY_* constants.
 	 * @return ArtifactRef
 	 * @throws \RuntimeException When the response carries no URL.
 	 */
-	public function put( string $file ): ArtifactRef {
-		$media = $this->client->upload( 'wp/v2/media', $file );
+	public function put( string $file, string $visibility = ArtifactStorage::VISIBILITY_PROTECTED ): ArtifactRef {
+		$media = $this->client->upload( 'wp/v2/media', $file, $visibility === ArtifactStorage::VISIBILITY_PROTECTED );
 
 		if ( empty( $media['source_url'] ) ) {
 			throw new \RuntimeException( 'The upload succeeded but WordPress returned no file URL.' );

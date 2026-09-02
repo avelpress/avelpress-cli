@@ -8,19 +8,31 @@ use AvelPress\Cli\Release\Support\DownloadMatcher;
 /**
  * Where release packages are published.
  *
- * The default driver uploads to the WordPress media library over HTTP, which is
- * what keeps a release possible from any machine. Other drivers (a protected
- * endpoint, a bucket) can be added without the release pipeline knowing.
+ * A release produces the same ZIP for two audiences with opposite needs. The
+ * store copy must be reachable only through a purchase, while the copy the
+ * update manifest points at is fetched by every customer's WordPress with no
+ * credentials at all. Hence the visibility: one file, published twice.
  */
 interface ArtifactStorage {
 
 	/**
+	 * Only served through a purchase; direct access is refused.
+	 */
+	const VISIBILITY_PROTECTED = 'protected';
+
+	/**
+	 * Fetchable by anyone who knows the URL.
+	 */
+	const VISIBILITY_PUBLIC = 'public';
+
+	/**
 	 * Publishes a local file and returns how to reach it.
 	 *
-	 * @param string $file Absolute path of the file to publish.
+	 * @param string $file       Absolute path of the file to publish.
+	 * @param string $visibility One of the VISIBILITY_* constants.
 	 * @return ArtifactRef
 	 */
-	public function put( string $file ): ArtifactRef;
+	public function put( string $file, string $visibility = self::VISIBILITY_PROTECTED ): ArtifactRef;
 
 	/**
 	 * Packages already published for a plugin, newest first.

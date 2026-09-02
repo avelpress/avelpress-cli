@@ -3,6 +3,7 @@
 namespace AvelPress\Cli\Release\Targets;
 
 use AvelPress\Cli\Release\ArtifactRef;
+use AvelPress\Cli\Release\Contracts\ArtifactStorage;
 use AvelPress\Cli\Release\Contracts\ReleaseTarget;
 use AvelPress\Cli\Release\Http\HttpClient;
 use AvelPress\Cli\Release\ReleaseContext;
@@ -67,6 +68,16 @@ class WebhookTarget implements ReleaseTarget {
 	 */
 	public function name(): string {
 		return 'updater';
+	}
+
+	/**
+	 * WordPress fetches the package URL with no credentials, so the manifest
+	 * has to point at the public copy.
+	 *
+	 * @return string
+	 */
+	public function artifactVisibility(): string {
+		return ArtifactStorage::VISIBILITY_PUBLIC;
 	}
 
 	/**

@@ -127,11 +127,9 @@ class ReleaseService {
 
 		$this->checkPackage( $zip, $version, $output );
 
-		$output->writeln( '<info>Uploading</info> ' . basename( $zip ) );
-		$artifact = $this->storage->put( $zip );
-		$output->writeln( '  ' . $artifact->url() );
+		$artifacts = $this->publish( $zip, $output );
 
-		$this->applyTargets( $artifact, $version, $output );
+		$this->applyTargets( $artifacts, $version, $output );
 
 		// Only now: a commit and a tag should describe a version that really
 		// went out, so a release that fails earlier leaves nothing but edited
@@ -139,7 +137,7 @@ class ReleaseService {
 		$this->recordBump( $bumped, $version, $output );
 
 		if ( ! empty( $options['prune'] ) ) {
-			$this->prune( $artifact, $output );
+			$this->prune( $artifacts, $output );
 		}
 
 		$output->writeln( '<info>Release completed.</info>' );
@@ -355,18 +353,49 @@ class ReleaseService {
 	}
 
 	/**
+	 * Publishes the package once for each visibility a target asks for.
+	 *
+	 * The store copy and the updater copy are the same ZIP with different
+	 * reachability, so the upload happens once per visibility, not once per
+	 * target.
+	 *
+	 * @param string          $zip    Package path.
+	 * @param OutputInterface $output Console output.
+	 * @return ArtifactRef[] Keyed by visibility.
+	 */
+	private function publish( string $zip, OutputInterface $output ): array {
+		$artifacts = [];
+
+		foreach ( $this->targets as $target ) {
+			$visibility = $target->artifactVisibility();
+
+			if ( isset( $artifacts[ $visibility ] ) ) {
+				continue;
+			}
+
+			$output->writeln( '<info>Uploading</info> ' . basename( $zip ) . " ($visibility)" );
+
+			$artifacts[ $visibility ] = $this->storage->put( $zip, $visibility );
+
+			$output->writeln( '  ' . $artifacts[ $visibility ]->url() );
+		}
+
+		return $artifacts;
+	}
+
+	/**
 	 * Backs up the current state and updates every target.
 	 *
-	 * @param ArtifactRef     $artifact Package that was published.
-	 * @param string          $version  Version being released.
-	 * @param OutputInterface $output   Console output.
+	 * @param ArtifactRef[]   $artifacts Published packages, keyed by visibility.
+	 * @param string          $version   Version being released.
+	 * @param OutputInterface $output    Console output.
 	 * @return array Plans that were applied, keyed by target name.
 	 */
-	private function applyTargets( ArtifactRef $artifact, string $version, OutputInterface $output ): array {
+	private function applyTargets( array $artifacts, string $version, OutputInterface $output ): array {
 		$plans = [];
 
 		foreach ( $this->targets as $target ) {
-			$plans[ $target->name() ] = $target->plan( $artifact, $version );
+			$plans[ $target->name() ] = $target->plan( $artifacts[ $target->artifactVisibility() ], $version );
 		}
 
 		$backup = $this->writeBackup( $plans, $version );
@@ -388,7 +417,11 @@ class ReleaseService {
 			$output->writeln( '<info>Target ' . $target->name() . ':</info> ' . count( $plan ) . ' objects updated' );
 
 			foreach ( $plan as $item ) {
-				$output->writeln( '  ' . $item['label'] . ' (' . count( $item['changes'] ) . ')' );
+				// Only the store plan describes individual download entries; a
+				// target like the update manifest has a single thing to say.
+				$changes = isset( $item['changes'] ) ? ' (' . count( $item['changes'] ) . ')' : '';
+
+				$output->writeln( '  ' . $item['label'] . $changes );
 			}
 		}
 
@@ -432,10 +465,10 @@ class ReleaseService {
 	 * A package still referenced by any download entry is never deleted, no
 	 * matter how old it is.
 	 *
-	 * @param ArtifactRef     $artifact Package that was just published.
-	 * @param OutputInterface $output   Console output.
+	 * @param ArtifactRef[]   $artifacts Packages just published, keyed by visibility.
+	 * @param OutputInterface $output    Console output.
 	 */
-	private function prune( ArtifactRef $artifact, OutputInterface $output ): void {
+	private function prune( array $artifacts, OutputInterface $output ): void {
 		$keep = $this->context->keep();
 		$matcher = $this->context->matcher();
 
@@ -449,7 +482,12 @@ class ReleaseService {
 			$referenced[ strtolower( basename( (string) parse_url( $entry['file'], PHP_URL_PATH ) ) ) ] = true;
 		}
 
-		$referenced[ strtolower( $artifact->fileName() ) ] = true;
+		// The updater copy is referenced by the manifest, not by any product, so
+		// nothing else here would stop it from being deleted right after it was
+		// published.
+		foreach ( $artifacts as $artifact ) {
+			$referenced[ strtolower( $artifact->fileName() ) ] = true;
+		}
 
 		$published = $this->storage->published( $matcher );
 		$removed = 0;

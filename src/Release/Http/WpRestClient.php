@@ -113,21 +113,28 @@ class WpRestClient {
 	 * under a fully guessable URL. On a site without WooCommerce the field is
 	 * simply ignored.
 	 *
-	 * @param string $path        Route path.
-	 * @param string $file        Path of the file to upload.
-	 * @param string $contentType MIME type sent to WordPress.
+	 * @param string $path         Route path.
+	 * @param string $file         Path of the file to upload.
+	 * @param bool   $downloadable Whether to ask WooCommerce for the protected
+	 *                             folder. False uploads to the public one, which
+	 *                             is what the update manifest needs: WordPress
+	 *                             fetches that URL with no credentials.
+	 * @param string $contentType  MIME type sent to WordPress.
 	 * @return array Decoded response body.
 	 * @throws \RuntimeException When the file cannot be read.
 	 */
-	public function upload( string $path, string $file, string $contentType = 'application/zip' ): array {
+	public function upload( string $path, string $file, bool $downloadable = true, string $contentType = 'application/zip' ): array {
 		if ( ! is_readable( $file ) ) {
 			throw new \RuntimeException( "Could not read $file." );
 		}
 
-		$response = $this->request( 'POST', $path, [], [
-			'file' => new \CURLFile( $file, $contentType, basename( $file ) ),
-			'type' => 'downloadable_product',
-		] );
+		$fields = [ 'file' => new \CURLFile( $file, $contentType, basename( $file ) ) ];
+
+		if ( $downloadable ) {
+			$fields['type'] = 'downloadable_product';
+		}
+
+		$response = $this->request( 'POST', $path, [], $fields );
 
 		return $response['body'];
 	}

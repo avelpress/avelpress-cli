@@ -20,6 +20,13 @@ interface ReleaseTarget {
 	public function name(): string;
 
 	/**
+	 * Which copy of the package this target should point at.
+	 *
+	 * @return string One of the ArtifactStorage VISIBILITY_* constants.
+	 */
+	public function artifactVisibility(): string;
+
+	/**
 	 * Describes what would change, without changing anything.
 	 *
 	 * @param ArtifactRef $artifact Package that should be linked.

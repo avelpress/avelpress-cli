@@ -95,6 +95,12 @@ also posts a manifest (version, package URL, requirements and the changelog entr
 of the version) to that endpoint, so plugins that update themselves and the store
 can never disagree. Without them the release only updates the store.
 
+The package is then published twice, because the two audiences need opposite
+things. The store copy goes to WooCommerce's protected folder, where a direct
+request answers 403 and the file is only served through a purchase. The manifest
+instead points at a public copy, since the customer's WordPress fetches that URL
+with no credentials at all when it installs an update.
+
 ### Project configuration
 
 Everything is optional — a plugin with no `release` block uses its `plugin_id`

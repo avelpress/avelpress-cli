@@ -3,6 +3,7 @@
 namespace AvelPress\Cli\Release\Targets;
 
 use AvelPress\Cli\Release\ArtifactRef;
+use AvelPress\Cli\Release\Contracts\ArtifactStorage;
 use AvelPress\Cli\Release\Contracts\ReleaseTarget;
 use AvelPress\Cli\Release\Http\RestException;
 use AvelPress\Cli\Release\Http\WpRestClient;
@@ -59,6 +60,15 @@ class WooCommerceTarget implements ReleaseTarget {
 	 */
 	public function name(): string {
 		return 'store';
+	}
+
+	/**
+	 * The store copy must not be fetchable without a purchase.
+	 *
+	 * @return string
+	 */
+	public function artifactVisibility(): string {
+		return ArtifactStorage::VISIBILITY_PROTECTED;
 	}
 
 	/**
