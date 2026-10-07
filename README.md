@@ -56,6 +56,31 @@ php bin/avel list
 php bin/avel build --ignore-platform-reqs
 ```
 
+### Build options
+
+These go in the `build` block of `avelpress.config.php`:
+
+```php
+'build' => [
+    // Built for wordpress.org: fail the build if avelpress/updater is required
+    // (directly or through another package) or the plugin still configures an
+    // updater. wordpress.org delivers updates itself and rejects plugins that
+    // change the update source.
+    'wordpress_org' => true,
+
+    // Keep the path repositories of composer.json when installing the build's
+    // dependencies (copied, never symlinked). By default the build drops every
+    // repository and resolves from Packagist; this lets a plugin build against a
+    // local checkout of a package that is not released yet.
+    'keep_path_repositories' => true,
+],
+```
+
+`build.prefixer.include_packages` limits prefixing to the listed packages (by
+default every installed package is prefixed). `avelpress/updater` always follows
+`avelpress/avelpress`: it is prefixed when the framework is, even if the list
+does not name it, because the framework looks the updater up by class name.
+
 ## Requirements
 
 - PHP 7.4+

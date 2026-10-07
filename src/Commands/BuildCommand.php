@@ -2,6 +2,7 @@
 
 namespace AvelPress\Cli\Commands;
 
+use AvelPress\Cli\Build\WordPressOrgGuard;
 use AvelPress\Cli\Release\VersionManager;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -64,6 +65,18 @@ class BuildCommand extends Command {
 			return Command::FAILURE;
 		}
 		$pluginId = $config['plugin_id'];
+
+		if ( WordPressOrgGuard::applies( $config ) ) {
+			$composerData = file_exists( "$currentDir/composer.json" )
+				? json_decode( (string) file_get_contents( "$currentDir/composer.json" ), true )
+				: [];
+			$problems = ( new WordPressOrgGuard() )->checkProject( $currentDir, is_array( $composerData ) ? $composerData : [], $pluginId );
+
+			if ( ! empty( $problems ) ) {
+				$output->writeln( '<error>' . WordPressOrgGuard::message( $problems ) . '</error>' );
+				return Command::FAILURE;
+			}
+		}
 
 		// Allow custom output directory via config (absolute or relative)
 		$outputDir = isset( $config['build']['output_dir'] ) && ! empty( $config['build']['output_dir'] )
@@ -246,6 +259,13 @@ class BuildCommand extends Command {
 			return Command::SUCCESS;
 		} catch (\Exception $e) {
 			$output->writeln( "<error>Error building package: {$e->getMessage()}</error>" );
+
+			// A guard failure leaves a complete-looking folder behind; remove it so
+			// nobody zips and ships it by hand.
+			if ( $e instanceof BuildRefusedException && is_dir( $buildDir ) ) {
+				$this->removeDirectory( $buildDir );
+			}
+
 			return Command::FAILURE;
 		}
 	}
@@ -253,7 +273,7 @@ class BuildCommand extends Command {
 	/**
 	 * Handle dependencies installation and return vendor namespaces
 	 */
-	private function handleDependencies( string $currentDir, string $buildDir, bool $ignorePlatformReqs, bool $composerCleanup, OutputInterface $output, array $includePackages = [], array $config = [] ): array {
+	private function handleDependencies( string $currentDir, string $buildDir, bool $ignorePlatformReqs, bool $composerCleanup, OutputInterface $output, array &$includePackages = [], array $config = [] ): array {
 		$vendorNamespaces = [];
 
 		// Copy and modify composer.json
@@ -275,10 +295,21 @@ class BuildCommand extends Command {
 			$output->writeln( "Removed require-dev section from composer.json" );
 		}
 
-		// Remove require-dev section
+		// Builds resolve from Packagist, unless the project opts into keeping its
+		// path repositories (build.keep_path_repositories), e.g. to build against a
+		// local framework checkout that is not released yet. Kept path packages are
+		// copied, not symlinked (see below).
 		if ( isset( $composerData['repositories'] ) ) {
-			unset( $composerData['repositories'] );
-			$output->writeln( "Removed repositories section from composer.json" );
+			if ( ! empty( $config['build']['keep_path_repositories'] ) && is_array( $composerData['repositories'] ) ) {
+				$composerData['repositories'] = array_values( array_filter(
+					$composerData['repositories'],
+					fn( $repo ) => is_array( $repo ) && isset( $repo['type'] ) && $repo['type'] === 'path'
+				) );
+				$output->writeln( "Kept only the path repositories in composer.json" );
+			} else {
+				unset( $composerData['repositories'] );
+				$output->writeln( "Removed repositories section from composer.json" );
+			}
 		}
 
 		if ( isset( $config['build']['avelpress_version'], $composerData['require'], $composerData['require']['avelpress/avelpress'] ) ) {
@@ -333,6 +364,16 @@ class BuildCommand extends Command {
 		$packages = $this->getInstalledPackages( $buildVendorDir );
 		$output->writeln( "<info>Found " . count( $packages ) . " installed packages</info>" );
 
+		if ( WordPressOrgGuard::applies( $config ) ) {
+			$problems = ( new WordPressOrgGuard() )->checkInstalled( $packages );
+
+			if ( ! empty( $problems ) ) {
+				throw new BuildRefusedException( WordPressOrgGuard::message( $problems ) );
+			}
+		}
+
+		$includePackages = $this->alignUpdaterWithFramework( $includePackages, $packages, $output );
+
 		// Collect vendor namespaces from installed packages
 		$vendorNamespaces = $this->collectVendorNamespaces( $buildDir, empty( $includePackages ) ? $packages : $includePackages );
 
@@ -349,6 +390,43 @@ class BuildCommand extends Command {
 		$this->cleanDevFiles( $buildDir, $output );
 
 		return $vendorNamespaces;
+	}
+
+	/**
+	 * Prefixes avelpress/updater exactly when avelpress/avelpress is prefixed.
+	 *
+	 * The framework refers to AvelPress\Update\UpdaterBootstrapper, so the two
+	 * packages must end up under the same namespace: a prefixed framework looking
+	 * for an unprefixed updater (or the other way round) finds no updater at all.
+	 * With no include list every package is prefixed and nothing needs aligning;
+	 * an explicit list predates the split and would otherwise leave it out.
+	 *
+	 * @param string[] $includePackages build.prefixer.include_packages.
+	 * @param string[] $installed       Installed package names.
+	 * @return string[]
+	 */
+	private function alignUpdaterWithFramework( array $includePackages, array $installed, OutputInterface $output ): array {
+		$updater = 'avelpress/updater';
+		$framework = 'avelpress/avelpress';
+
+		if ( empty( $includePackages ) || ! in_array( $updater, $installed, true ) ) {
+			return $includePackages;
+		}
+
+		$prefixUpdater = in_array( $framework, $installed, true )
+			? in_array( $framework, $includePackages, true )
+			: true;
+		$listed = in_array( $updater, $includePackages, true );
+
+		if ( $prefixUpdater && ! $listed ) {
+			$includePackages[] = $updater;
+			$output->writeln( "Prefixing $updater along with the include_packages list" );
+		} elseif ( ! $prefixUpdater && $listed ) {
+			$includePackages = array_values( array_diff( $includePackages, [ $updater ] ) );
+			$output->writeln( "<comment>Not prefixing $updater because $framework is not prefixed</comment>" );
+		}
+
+		return $includePackages;
 	}
 
 	public function cleanDevFiles( string $buildDir, OutputInterface $output ): void {
