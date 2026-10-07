@@ -8,11 +8,15 @@ namespace AvelPress\Cli\Build;
  * wordpress.org delivers updates itself, and a plugin carrying code that hooks
  * the update check is rejected in review. A project declares
  * `'build' => ['wordpress_org' => true]` and the build refuses to produce a
- * package that requires avelpress/updater or still configures it.
+ * package that requires avelpress/updater, still configures it, or installs an
+ * avelpress/avelpress that bundles it (1.3.x).
  */
 class WordPressOrgGuard {
 
 	const UPDATER_PACKAGE = 'avelpress/updater';
+
+	/** Where avelpress/avelpress 1.3.x carried the updater, relative to vendor/. */
+	const FRAMEWORK_UPDATER_DIR = 'avelpress/avelpress/src/Update';
 
 	/**
 	 * Whether the project is built for wordpress.org.
@@ -53,17 +57,27 @@ class WordPressOrgGuard {
 
 	/**
 	 * Problems in the dependencies composer actually installed, which also
-	 * catches the updater arriving through another package.
+	 * catches the updater arriving through another package or bundled in the
+	 * framework itself (avelpress/avelpress 1.3.x ships it in src/Update).
 	 *
 	 * @param string[] $installedPackages Package names from vendor/composer/installed.json.
+	 * @param string   $vendorDir         The build's vendor directory; '' skips the framework check.
 	 * @return string[]
 	 */
-	public function checkInstalled( array $installedPackages ): array {
-		if ( ! in_array( self::UPDATER_PACKAGE, $installedPackages, true ) ) {
-			return [];
+	public function checkInstalled( array $installedPackages, string $vendorDir = '' ): array {
+		$problems = [];
+
+		if ( in_array( self::UPDATER_PACKAGE, $installedPackages, true ) ) {
+			$problems[] = self::UPDATER_PACKAGE . ' was installed as a dependency of another package.';
 		}
 
-		return [ self::UPDATER_PACKAGE . ' was installed as a dependency of another package.' ];
+		if ( $vendorDir !== '' && is_dir( "$vendorDir/" . self::FRAMEWORK_UPDATER_DIR ) ) {
+			$problems[] = 'The installed avelpress/avelpress still bundles the updater (vendor/'
+				. self::FRAMEWORK_UPDATER_DIR . ', shipped by 1.3.0 to 1.3.2). '
+				. "Require avelpress/avelpress ^2.0, or set build.avelpress_version to '^2.0'.";
+		}
+
+		return $problems;
 	}
 
 	/**

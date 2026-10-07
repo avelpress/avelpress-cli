@@ -63,23 +63,32 @@ These go in the `build` block of `avelpress.config.php`:
 ```php
 'build' => [
     // Built for wordpress.org: fail the build if avelpress/updater is required
-    // (directly or through another package) or the plugin still configures an
-    // updater. wordpress.org delivers updates itself and rejects plugins that
-    // change the update source.
+    // (directly or through another package), the plugin still configures an
+    // updater, or the installed avelpress/avelpress bundles it (1.3.0 to
+    // 1.3.2; use ^2.0). wordpress.org delivers updates itself and rejects
+    // plugins that change the update source.
     'wordpress_org' => true,
 
     // Keep the path repositories of composer.json when installing the build's
     // dependencies (copied, never symlinked). By default the build drops every
     // repository and resolves from Packagist; this lets a plugin build against a
-    // local checkout of a package that is not released yet.
+    // local checkout of a package that is not released yet. Such a build is not
+    // reproducible from released versions (the build prints a warning): never
+    // publish one.
     'keep_path_repositories' => true,
 ],
 ```
 
+`wordpress_org` and `keep_path_repositories` need avelpress-cli 1.2.0 or later
+(the version after 1.1.5); older versions ignore them silently, so the guard
+does not run.
+
 `build.prefixer.include_packages` limits prefixing to the listed packages (by
-default every installed package is prefixed). `avelpress/updater` always follows
-`avelpress/avelpress`: it is prefixed when the framework is, even if the list
-does not name it, because the framework looks the updater up by class name.
+default every installed package is prefixed). When `avelpress/avelpress` is
+installed, `avelpress/updater` follows it: it is prefixed when the framework is,
+even if the list does not name it, and left alone when it is not, because the
+framework looks the updater up by class name. Without the framework the list is
+used as written.
 
 ## Requirements
 

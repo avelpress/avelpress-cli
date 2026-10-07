@@ -306,6 +306,13 @@ class BuildCommand extends Command {
 					fn( $repo ) => is_array( $repo ) && isset( $repo['type'] ) && $repo['type'] === 'path'
 				) );
 				$output->writeln( "Kept only the path repositories in composer.json" );
+
+				if ( ! empty( $composerData['repositories'] ) ) {
+					$output->writeln( '<comment>Warning: this build installs packages from local path repositories ('
+						. implode( ', ', array_column( $composerData['repositories'], 'url' ) )
+						. '), so it reflects whatever those checkouts contain and cannot be reproduced from released versions. '
+						. 'Do not publish it; turn off build.keep_path_repositories once the packages are released.</comment>' );
+				}
 			} else {
 				unset( $composerData['repositories'] );
 				$output->writeln( "Removed repositories section from composer.json" );
@@ -365,7 +372,7 @@ class BuildCommand extends Command {
 		$output->writeln( "<info>Found " . count( $packages ) . " installed packages</info>" );
 
 		if ( WordPressOrgGuard::applies( $config ) ) {
-			$problems = ( new WordPressOrgGuard() )->checkInstalled( $packages );
+			$problems = ( new WordPressOrgGuard() )->checkInstalled( $packages, $buildVendorDir );
 
 			if ( ! empty( $problems ) ) {
 				throw new BuildRefusedException( WordPressOrgGuard::message( $problems ) );
@@ -400,6 +407,8 @@ class BuildCommand extends Command {
 	 * for an unprefixed updater (or the other way round) finds no updater at all.
 	 * With no include list every package is prefixed and nothing needs aligning;
 	 * an explicit list predates the split and would otherwise leave it out.
+	 * Without the framework there is nothing to align with, and the list is
+	 * honoured as written.
 	 *
 	 * @param string[] $includePackages build.prefixer.include_packages.
 	 * @param string[] $installed       Installed package names.
@@ -409,13 +418,11 @@ class BuildCommand extends Command {
 		$updater = 'avelpress/updater';
 		$framework = 'avelpress/avelpress';
 
-		if ( empty( $includePackages ) || ! in_array( $updater, $installed, true ) ) {
+		if ( empty( $includePackages ) || ! in_array( $updater, $installed, true ) || ! in_array( $framework, $installed, true ) ) {
 			return $includePackages;
 		}
 
-		$prefixUpdater = in_array( $framework, $installed, true )
-			? in_array( $framework, $includePackages, true )
-			: true;
+		$prefixUpdater = in_array( $framework, $includePackages, true );
 		$listed = in_array( $updater, $includePackages, true );
 
 		if ( $prefixUpdater && ! $listed ) {
