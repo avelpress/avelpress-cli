@@ -271,6 +271,22 @@ class BuildCommand extends Command {
 	}
 
 	/**
+	 * Whether composer.json requires real packages (platform entries such as
+	 * php or ext-* need no vendor directory).
+	 *
+	 * @param array $composerData Decoded composer.json of the build.
+	 */
+	private function hasPackageRequirements( array $composerData ): bool {
+		foreach ( array_keys( $composerData['require'] ?? [] ) as $package ) {
+			if ( $package !== 'php' && strpos( $package, 'ext-' ) !== 0 && strpos( $package, 'lib-' ) !== 0 ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Handle dependencies installation and return vendor namespaces
 	 */
 	private function handleDependencies( string $currentDir, string $buildDir, bool $ignorePlatformReqs, bool $composerCleanup, OutputInterface $output, array &$includePackages = [], array $config = [] ): array {
@@ -350,20 +366,28 @@ class BuildCommand extends Command {
 			$composerInstallCmd .= " --ignore-platform-reqs";
 		}
 		$composerCommand = "cd " . escapeshellarg( $buildDir ) . " && $composerInstallCmd 2>&1";
-		$composerOutput = shell_exec( $composerCommand );
-
-		if ( $composerOutput === null ) {
-			$output->writeln( "<error>Failed to execute composer install.</error>" );
-			return $vendorNamespaces;
-		}
+		$composerLines = [];
+		$composerExitCode = 0;
+		exec( $composerCommand, $composerLines, $composerExitCode );
+		$composerOutput = implode( PHP_EOL, $composerLines );
 
 		$output->writeln( "<comment>Composer install output:</comment>" );
 		$output->writeln( $composerOutput );
 
+		// A package without its production dependencies looks complete but fails
+		// on activation, so a failed install stops the build instead of zipping it.
+		$needsVendor = $this->hasPackageRequirements( $composerData );
+		if ( $composerExitCode !== 0 && $needsVendor ) {
+			throw new BuildRefusedException( "composer install failed (exit code $composerExitCode); the package would ship without its dependencies." );
+		}
+
 		// Check if vendor directory was created
 		$buildVendorDir = "$buildDir/vendor";
 		if ( ! is_dir( $buildVendorDir ) ) {
-			$output->writeln( "<comment>Vendor directory was not created after composer install.</comment>" );
+			if ( $needsVendor ) {
+				throw new BuildRefusedException( 'Vendor directory was not created after composer install; the package would ship without its dependencies.' );
+			}
+			$output->writeln( "<comment>No production dependencies to install.</comment>" );
 			return $vendorNamespaces;
 		}
 
