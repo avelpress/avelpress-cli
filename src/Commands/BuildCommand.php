@@ -955,6 +955,12 @@ class BuildCommand extends Command {
 			$zipFile = getcwd() . DIRECTORY_SEPARATOR . $zipFile;
 		}
 
+		// `zip -r` adds to an existing archive instead of replacing it, so a
+		// rebuild of the same version would carry files removed since then.
+		if ( file_exists( $zipFile ) && ! unlink( $zipFile ) ) {
+			throw new \Exception( "Could not replace the existing ZIP file: $zipFile" );
+		}
+
 		$command = "cd " . escapeshellarg( $baseDir ) . " && zip -r " . escapeshellarg( $zipFile ) . " " . escapeshellarg( $dirName );
 
 		$output = [];

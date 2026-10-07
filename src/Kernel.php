@@ -16,7 +16,7 @@ use AvelPress\Cli\Commands\ReleaseRestoreCommand;
 
 class Kernel {
 	public function run() {
-		$app = new Application( 'Avelpress CLI', '1.2.1' );
+		$app = new Application( 'Avelpress CLI', '1.2.2' );
 
 		$app->add( new MakeMigrationCommand() );
 		$app->add( new MigrateCommand() );
